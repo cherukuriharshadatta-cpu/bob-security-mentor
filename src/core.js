@@ -4,6 +4,9 @@
   var MAX_MEMORY_TURNS = 40;
   var MAX_TURN_LENGTH = 1800;
   var MAX_GUIDANCE_LENGTH = 240;
+  var MAX_INTENT_ITEMS = 24;
+  var MAX_INTENT_HISTORY = 6;
+  var MAX_INTENT_TEXT_LENGTH = 360;
   var PROJECT_FIELDS = [
     ["projectName", "Project name"], ["description", "Description"],
     ["objective", "Objective"], ["audience", "Audience"],
@@ -1249,6 +1252,231 @@
 
   function snapshotFromMessages(messages) { return JSON.stringify(normalizeMessages(messages)); }
 
+  // Intent is deliberately a small, local evidence ledger. It is not a
+  // semantic model: every item below must come from an explicit user phrase.
+  var INTENT_TYPES = { goal: true, constraint: true, decision: true, requirement: true };
+  var INTENT_STATUSES = { current: true, replaced: true, uncertain: true };
+  var INTENT_SCOPES = { demo: true, production: true, unspecified: true };
+  var INTENT_CONFIDENCE = { high: true, medium: true, low: true };
+
+  function intentHash(value) {
+    var text = String(value || "");
+    var hash = 2166136261;
+    for (var i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function intentScope(text) {
+    var value = String(text || "");
+    var demo = /\b(?:demo|prototype|proof[ -]?of[ -]?concept|poc|hackathon|mock(?:up)?)\b/i.test(value);
+    var production = /\b(?:production|prod|live|launched?|ship(?:ped|ping)?|deploy(?:ed|ment)?)\b/i.test(value);
+    return demo === production ? "unspecified" : demo ? "demo" : "production";
+  }
+
+  function intentUncertain(text) {
+    return /\b(?:maybe|might|could|possibly|perhaps|not sure|uncertain|tentative|probably|i think|we think|undecided)\b/i.test(String(text || ""));
+  }
+
+  function intentSource(turnIndex, text) {
+    var index = Number(turnIndex);
+    if (!isFinite(index) || index < 0) { index = 0; }
+    index = Math.floor(index);
+    return { turnIndex: index, reference: "user-turn:" + index + ":" + intentHash(text) };
+  }
+
+  function intentText(value) {
+    return trimText(value, MAX_INTENT_TEXT_LENGTH).replace(/^[\s:,-]+|[\s:,.!?-]+$/g, "");
+  }
+
+  function intentHistoryEntry(item, status, updatedAt, reason) {
+    return {
+      type: item.type, text: item.text, status: status || item.status,
+      scope: item.scope, source: item.source, confidence: item.confidence,
+      updatedAt: updatedAt || item.updatedAt, reason: reason || "updated"
+    };
+  }
+
+  function boundedIntentHistory(history) {
+    return (Array.isArray(history) ? history : []).filter(function (entry) {
+      return entry && typeof entry.text === "string";
+    }).slice(-MAX_INTENT_HISTORY).map(function (entry) {
+      var source = entry.source && typeof entry.source === "object" ? entry.source : {};
+      return {
+        type: INTENT_TYPES[entry.type] ? entry.type : "requirement",
+        text: intentText(entry.text),
+        status: INTENT_STATUSES[entry.status] ? entry.status : "uncertain",
+        scope: INTENT_SCOPES[entry.scope] ? entry.scope : "unspecified",
+        source: { turnIndex: Number.isFinite(Number(source.turnIndex)) ? Number(source.turnIndex) : 0, reference: trimText(source.reference, 120) },
+        confidence: INTENT_CONFIDENCE[entry.confidence] ? entry.confidence : "low",
+        updatedAt: trimText(entry.updatedAt, 80), reason: trimText(entry.reason, 40) || "updated"
+      };
+    });
+  }
+
+  function boundedIntentItem(item) {
+    if (!item || !INTENT_TYPES[item.type] || typeof item.text !== "string") { return null; }
+    var source = item.source && typeof item.source === "object" ? item.source : {};
+    var text = intentText(item.text);
+    if (!text) { return null; }
+    var turnIndex = Number(source.turnIndex);
+    if (!isFinite(turnIndex) || turnIndex < 0) { turnIndex = 0; }
+    turnIndex = Math.floor(turnIndex);
+    var reference = trimText(source.reference, 120) || intentSource(turnIndex, text).reference;
+    return {
+      id: trimText(item.id, 120) || item.type + ":" + intentHash(text),
+      type: item.type, text: text,
+      status: INTENT_STATUSES[item.status] ? item.status : "uncertain",
+      scope: INTENT_SCOPES[item.scope] ? item.scope : "unspecified",
+      source: { turnIndex: turnIndex, reference: reference },
+      confidence: INTENT_CONFIDENCE[item.confidence] ? item.confidence : "low",
+      updatedAt: trimText(item.updatedAt, 80), history: boundedIntentHistory(item.history)
+    };
+  }
+
+  function boundedIntentLedger(ledger) {
+    var source = Array.isArray(ledger) ? { items: ledger } : ledger && typeof ledger === "object" ? ledger : {};
+    var items = (Array.isArray(source.items) ? source.items : []).map(boundedIntentItem).filter(Boolean);
+    return {
+      items: items.slice(-MAX_INTENT_ITEMS),
+      updatedAt: trimText(source.updatedAt, 80)
+    };
+  }
+
+  function intentSegments(text) {
+    return String(text || "").replace(/\r\n?/g, "\n").split(/\n+|[.!?]\s+|;\s*/).map(function (part) {
+      return part.replace(/^[-*]\s+/, "").trim();
+    }).filter(Boolean);
+  }
+
+  function intentCandidate(type, value, context, turnIndex, confidence, replaces) {
+    var text = intentText(value);
+    if (!text || !INTENT_TYPES[type]) { return null; }
+    var source = intentSource(turnIndex, context || text);
+    var uncertain = intentUncertain(context || text);
+    return {
+      id: type + ":" + intentHash(text), type: type, text: text,
+      status: uncertain ? "uncertain" : "current", scope: intentScope(context || text),
+      source: source, confidence: uncertain ? "low" : confidence,
+      updatedAt: "", history: [], replaces: !!replaces
+    };
+  }
+
+  function intentCandidatesFromUserText(text, turnIndex) {
+    var candidates = [];
+    function add(type, value, context, confidence, replaces) {
+      var item = intentCandidate(type, value, context, turnIndex, confidence, replaces);
+      if (!item) { return; }
+      var duplicate = candidates.some(function (existing) {
+        return existing.type === item.type && existing.text.toLowerCase() === item.text.toLowerCase();
+      });
+      if (!duplicate) { candidates.push(item); }
+    }
+    intentSegments(text).forEach(function (segment) {
+      var match;
+      match = segment.match(/^(?:project\s+)?(?:goal|objective)\s*:\s*(.+)$/i);
+      if (match) { add("goal", match[1], segment, "high", true); return; }
+      match = segment.match(/^(?:my|our|the)\s+(?:new\s+)?(?:project\s+)?(?:goal|objective)\s+(?:is\s*:?)\s*(?:to\s+)?(.+)$/i);
+      if (match) { add("goal", match[1], segment, "high", true); return; }
+      match = segment.match(/^(?:(?:instead|now|actually|change(?:d)?\s+(?:the\s+)?goal|switch(?:ing)?(?:\s+the\s+goal)?|new\s+goal)[,:]?\s*)(?:please\s+)?(.+)$/i);
+      if (match && /\b(?:build|create|make|develop|focus|work on|use)\b/i.test(match[1])) {
+        add("goal", match[1], segment, "high", true); return;
+      }
+      match = segment.match(/^(?:i|we)\s+(?:now\s+)?(?:want|plan|intend|need)\s+to\s+(.+)$/i);
+      if (match) { add("goal", match[1], segment, "medium", /\b(?:instead|switch|change|new)\b/i.test(segment)); return; }
+      match = segment.match(/^(?:please\s+)?(?:build|create|make|develop)\s+(.+)$/i);
+      if (match) { add("goal", match[0], segment, "medium", /\b(?:instead|switch|change)\b/i.test(segment)); return; }
+
+      match = segment.match(/^(?:requirement|requirements|feature|features|acceptance criteria)\s*:\s*(.+)$/i);
+      if (match) { add("requirement", match[1], segment, "high", false); return; }
+      match = segment.match(/^(?:the\s+)?(?:app|project|system|tool|product)\s+(?:must|needs?\s+to|required\s+to)\s+(.+)$/i);
+      if (match) { add("requirement", match[0], segment, "medium", false); return; }
+      match = segment.match(/^(?:it|the\s+app|the\s+system)\s+should\s+(?:include|support|have|allow)\s+(.+)$/i);
+      if (match) { add("requirement", match[0], segment, "medium", false); return; }
+
+      match = segment.match(/^(?:constraint|constraints|limitation|limitations|non-negotiable)\s*:\s*(.+)$/i);
+      if (match) { add("constraint", match[1], segment, "high", false); return; }
+      if (/^(?:must not|cannot|can't|do not|don't|avoid|only)\b/i.test(segment)) {
+        add("constraint", segment, segment, "medium", false); return;
+      }
+
+      match = segment.match(/^(?:decision|decided|chosen|settled on)\s*:\s*(.+)$/i);
+      if (match) { add("decision", match[1], segment, "high", false); return; }
+      match = segment.match(/^(?:i|we)\s+(?:have\s+)?decided\s+(?:to\s+)?(.+)$/i);
+      if (match) { add("decision", match[1], segment, "high", false); return; }
+      match = segment.match(/^(?:let(?:'|’)s|we(?:'|’)ll|i(?:'|’)ll)\s+(?:use|choose|go with)\s+(.+)$/i);
+      if (match) { add("decision", match[0], segment, "medium", false); }
+      match = segment.match(/^(?:maybe|perhaps|possibly)\s+(?:use|choose|go with)\s+(.+)$/i);
+      if (match) { add("decision", match[0], segment, "medium", false); }
+    });
+    return candidates;
+  }
+
+  function sameIntentText(left, right) {
+    return String(left || "").toLowerCase().replace(/\s+/g, " ").trim() === String(right || "").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function replaceIntentItem(item, now, reason) {
+    if (!item || item.status === "replaced") { return item; }
+    var next = Object.assign({}, item);
+    next.history = boundedIntentHistory((item.history || []).concat([intentHistoryEntry(item, "replaced", now, reason || "superseded")]));
+    next.status = "replaced";
+    next.updatedAt = trimText(now, 80);
+    return next;
+  }
+
+  function intentLedgerFromMessages(input, previous, now) {
+    var messages = normalizeMessages(input);
+    var prior = boundedIntentLedger(previous);
+    var items = prior.items.map(function (item) { return Object.assign({}, item, { source: Object.assign({}, item.source), history: boundedIntentHistory(item.history) }); });
+    var candidates = [];
+    messages.forEach(function (message, turnIndex) {
+      if (message.role === "user") { candidates = candidates.concat(intentCandidatesFromUserText(message.text, turnIndex)); }
+    });
+    candidates.forEach(function (candidate) {
+      var matching = items.findIndex(function (item) { return item.source && item.source.reference === candidate.source.reference; });
+      if (matching >= 0) {
+        var existing = items[matching];
+        // A later explicit goal can replace an earlier source. Re-reading the
+        // same bounded transcript must not resurrect that replaced item.
+        if (existing.status === "replaced" && candidate.status === "current") { return; }
+        if (sameIntentText(existing.text, candidate.text) && existing.type === candidate.type && existing.scope === candidate.scope && existing.status === candidate.status && existing.confidence === candidate.confidence) { return; }
+        candidate.history = boundedIntentHistory((existing.history || []).concat([intentHistoryEntry(existing, existing.status, now, "same source updated")]));
+        candidate.updatedAt = trimText(now, 80);
+        delete candidate.replaces;
+        items[matching] = candidate;
+        return;
+      }
+      var duplicate = items.findIndex(function (item) {
+        return item.type === candidate.type && item.status !== "replaced" && sameIntentText(item.text, candidate.text);
+      });
+      if (duplicate >= 0) { return; }
+      if (candidate.status === "current" && (candidate.type === "goal" || candidate.replaces)) {
+        items = items.map(function (item) {
+          return item.type === candidate.type && item.status === "current" ? replaceIntentItem(item, now, "superseded by a later user statement") : item;
+        });
+      }
+      candidate.updatedAt = trimText(now, 80);
+      delete candidate.replaces;
+      items.push(candidate);
+    });
+    var next = { items: items.slice(-MAX_INTENT_ITEMS), updatedAt: prior.updatedAt };
+    if (JSON.stringify(next.items) !== JSON.stringify(prior.items)) { next.updatedAt = trimText(now, 80); }
+    return next;
+  }
+
+  function intentItemsFromMessages(input, previous, now) {
+    return intentLedgerFromMessages(input, previous, now).items;
+  }
+
+  function intentClarificationCue(ledger) {
+    var uncertain = boundedIntentLedger(ledger).items.filter(function (item) { return item.status === "uncertain"; });
+    if (!uncertain.length) { return ""; }
+    return "Clarify this uncertain user statement before treating it as settled: " + trimText(uncertain[uncertain.length - 1].text, MAX_GUIDANCE_LENGTH);
+  }
+
   function explicitGoal(text) {
     var patterns = [
       /(?:^|\n|;\s*)(?:project\s+)?(?:goal|objective)\s*:\s*([^\n;]+)/gi,
@@ -1376,7 +1604,9 @@
       turns: boundedTurns(current && current.turns),
       messages: normalizeMessages(current && current.messages || []),
       guidance: deriveGuidance([]), project: mergedProject(suggestions, overrides),
-      suggestions: suggestions, overrides: overrides, security: null, markdown: ""
+      suggestions: suggestions, overrides: overrides,
+      intentLedger: boundedIntentLedger(current && current.intentLedger),
+      security: null, markdown: ""
     };
     memory.security = securityFromMemoryOrMessages(memory.messages, memory.project);
     return memory;
@@ -1388,6 +1618,7 @@
       createdAt: memory.createdAt, consentGranted: memory.consentGranted,
       turns: memory.turns, messages: memory.messages, guidance: memory.guidance,
       project: memory.project, suggestions: memory.suggestions, overrides: memory.overrides,
+      intentLedger: memory.intentLedger,
       security: memory.security
     });
   }
@@ -1405,6 +1636,7 @@
     if (Object.prototype.hasOwnProperty.call(memory.overrides, "nextSteps")) {
       guidance.nextStep = memory.overrides.nextSteps ? "User-confirmed: " + trimText(memory.overrides.nextSteps, MAX_GUIDANCE_LENGTH) : "Next steps intentionally cleared by the user.";
     }
+    guidance.clarificationCue = intentClarificationCue(memory.intentLedger);
     return guidance;
   }
 
@@ -1443,6 +1675,7 @@
     memory.messages = messages;
     memory.suggestions = suggestedProject(memory.suggestions, messages);
     memory.project = mergedProject(memory.suggestions, memory.overrides);
+    memory.intentLedger = intentLedgerFromMessages(memory.messages, memory.intentLedger, now);
     if (snapshotFromMessages(messages) !== snapshotFromMessages(previousMessages)) {
       var changed = messages.filter(function (message, index) {
         return !previousMessages[index] || previousMessages[index].role !== message.role || previousMessages[index].text !== message.text;
@@ -1506,6 +1739,13 @@
       var value = safe.suggestions && safe.suggestions[field.key];
       if (typeof value === "string" && value) { lines.push("- " + field.label + " (suggested): " + trimText(value, MAX_TURN_LENGTH)); }
     });
+    lines.push("", "## Intent ledger", "", "Only explicit user statements become ledger items. Assistant text does not establish goals, requirements, constraints, or decisions.", "");
+    boundedIntentLedger(safe.intentLedger).items.forEach(function (item) {
+      var source = item.source || {};
+      lines.push("- [" + item.status + "] " + item.type + " — " + item.text + " (scope: " + item.scope + "; confidence: " + item.confidence + "; source turn: " + (Number(source.turnIndex) + 1) + "; history: " + item.history.length + ")");
+    });
+    if (!boundedIntentLedger(safe.intentLedger).items.length) { lines.push("No explicit user intent statements captured."); }
+    if (guidance.clarificationCue) { lines.push("", "- Clarification cue: " + guidance.clarificationCue); }
     lines.push(
       "", "## Security & readiness review", "",
       "Local rule-based signals from bounded captured user/assistant text and explicit project fields only. This is not a security audit, does not verify security, and does not claim that any control is present.", "",
@@ -1538,11 +1778,17 @@
 
   var api = {
     MAX_MEMORY_TURNS: MAX_MEMORY_TURNS, MAX_TURN_LENGTH: MAX_TURN_LENGTH,
+    MAX_INTENT_ITEMS: MAX_INTENT_ITEMS, MAX_INTENT_HISTORY: MAX_INTENT_HISTORY,
     PROJECT_FIELDS: PROJECT_FIELDS, trimText: trimText,
     conversationKeyFromUrl: conversationKeyFromUrl,
     extractConversation: extractConversation, extractVisibleConversationText: extractVisibleConversationText,
     conversationRoots: conversationRoots, candidateMessageNodes: candidateMessageNodes,
     normalizeMessages: normalizeMessages, snapshotFromMessages: snapshotFromMessages,
+    intentLedgerFromMessages: intentLedgerFromMessages,
+    extractIntentLedger: intentLedgerFromMessages,
+    intentItemsFromMessages: intentItemsFromMessages,
+    extractIntentItems: intentItemsFromMessages,
+    intentClarificationCue: intentClarificationCue,
     deriveGuidance: deriveGuidance, memoryFromObservation: memoryFromObservation,
     applyProjectEdits: applyProjectEdits, markdownFromMemory: markdownFromMemory,
     securityChecksFromMemoryOrMessages: securityChecksFromMemoryOrMessages,

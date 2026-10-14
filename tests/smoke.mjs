@@ -256,6 +256,41 @@ test("guidance separates users from assistants and retains explicit goal across 
   assert.match(guidance.nextStep, /Which platform/);
 });
 
+test("intent ledger stores current intent, scope, confidence, and replacement history", () => {
+  const messages = [
+    msg("user", "Goal: Build a Roblox-style game for the hackathon demo."),
+    msg("assistant", "The project is production ready."),
+    msg("user", "Actually, the new goal is to build a Minecraft-style browser game for production. Requirement: The app must support beginner players. Maybe use JavaScript.")
+  ];
+  const ledger = core.intentLedgerFromMessages(messages, null, at(3));
+  const currentGoals = ledger.items.filter(item => item.type === "goal" && item.status === "current");
+  const replacedGoals = ledger.items.filter(item => item.type === "goal" && item.status === "replaced");
+  assert.equal(currentGoals.length, 1);
+  assert.match(currentGoals[0].text, /Minecraft-style browser game/);
+  assert.equal(currentGoals[0].scope, "production");
+  assert.equal(currentGoals[0].confidence, "high");
+  assert.equal(replacedGoals.length, 1);
+  assert.equal(replacedGoals[0].scope, "demo");
+  assert.equal(replacedGoals[0].history.at(-1).status, "replaced");
+  assert.equal(ledger.items.some(item => item.type === "requirement" && item.status === "current"), true);
+  assert.equal(ledger.items.some(item => item.type === "decision" && item.status === "uncertain"), true);
+  assert.match(core.intentClarificationCue(ledger), /Clarify this uncertain user statement/);
+  assert.doesNotMatch(JSON.stringify(ledger), /production ready/);
+});
+
+test("memory persists the intent ledger and Markdown explains its evidence boundary", () => {
+  const memory = core.memoryFromObservation(null, key, [
+    msg("user", "Goal: Build a private demo dashboard."),
+    msg("assistant", "Goal: Build a public banking platform.")
+  ], at(4));
+  assert.ok(memory.intentLedger);
+  assert.equal(memory.intentLedger.items.length, 1);
+  assert.match(memory.intentLedger.items[0].text, /private demo dashboard/);
+  assert.doesNotMatch(JSON.stringify(memory.intentLedger), /banking/);
+  assert.match(memory.markdown, /## Intent ledger/);
+  assert.match(memory.markdown, /Only explicit user statements become ledger items/);
+});
+
 test("later intent beyond the old 1800-character snapshot limit replaces automatic goal", () => {
   const messages = [msg("user", "Goal: Build a timer"), ...Array.from({ length: 45 }, () => msg("assistant", "Long context ".repeat(200))), msg("user", "Instead build a recipe app.")];
   const memory = core.memoryFromObservation(null, key, messages, at(0));

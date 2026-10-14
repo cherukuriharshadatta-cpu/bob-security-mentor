@@ -9,7 +9,7 @@
   var DEFAULT_BACKEND = "http://127.0.0.1:8787";
   var MENTOR_HISTORY_LIMIT = 40;
   var MENTOR_TIMEOUT = 28000;
-  var FALLBACK_EXTENSION_VERSION = "0.4.5";
+  var FALLBACK_EXTENSION_VERSION = "0.5.0";
   var MENTOR_FIELDS = [
     ["projectUnderstanding", "Project understanding"],
     ["changedRequirements", "Changed requirements"],
@@ -469,6 +469,43 @@
   });
   append(ui.dashboard, "p", "bob-muted bob-provenance", "Suggestions come from deterministic local rules over captured text. Unknown project details remain unknown; progress is self-reported, not independently verified.");
 
+  ui.intentLedger = append(ui.dashboard, "section", "bob-intent-ledger bob-card");
+  ui.intentLedger.setAttribute("aria-labelledby", "bob-intent-ledger-title");
+  var intentLedgerHeading = append(ui.intentLedger, "div", "bob-section-heading bob-intent-ledger-heading");
+  var intentLedgerHeadingCopy = append(intentLedgerHeading, "div");
+  append(intentLedgerHeadingCopy, "p", "bob-section-kicker", "Intent ledger");
+  var intentLedgerTitle = append(intentLedgerHeadingCopy, "h2", "", "What we think you are building");
+  intentLedgerTitle.id = "bob-intent-ledger-title";
+  ui.intentLedgerStatus = append(intentLedgerHeading, "p", "bob-muted", "Local snapshot");
+  ui.intentLedgerStatus.setAttribute("role", "status");
+  var intentLedgerGrid = append(ui.intentLedger, "div", "bob-intent-ledger-grid");
+  var currentIntentCard = append(intentLedgerGrid, "article", "bob-intent-current");
+  append(currentIntentCard, "p", "bob-intent-label", "Current intent");
+  ui.intentCurrent = append(currentIntentCard, "p", "bob-intent-current-value");
+  ui.intentCurrent.setAttribute("aria-live", "polite");
+  ui.intentSource = append(currentIntentCard, "p", "bob-intent-source");
+  var scopeCard = append(intentLedgerGrid, "article", "bob-intent-metric");
+  append(scopeCard, "p", "bob-intent-label", "Scope");
+  ui.intentScope = append(scopeCard, "p", "bob-intent-metric-value");
+  var confidenceCard = append(intentLedgerGrid, "article", "bob-intent-metric bob-intent-confidence");
+  append(confidenceCard, "p", "bob-intent-label", "Confidence");
+  ui.intentConfidence = append(confidenceCard, "p", "bob-intent-metric-value");
+  ui.intentConfidenceMeter = append(confidenceCard, "span", "bob-intent-confidence-meter");
+  ui.intentConfidenceFill = append(ui.intentConfidenceMeter, "span", "bob-intent-confidence-fill");
+  var intentLedgerColumns = append(ui.intentLedger, "div", "bob-intent-ledger-columns");
+  var changedIntent = append(intentLedgerColumns, "section", "bob-intent-list bob-intent-changed");
+  append(changedIntent, "h3", "", "Replaced or changed");
+  ui.intentChangedList = append(changedIntent, "ul");
+  var uncertainIntent = append(intentLedgerColumns, "section", "bob-intent-list bob-intent-uncertain");
+  append(uncertainIntent, "h3", "", "Uncertain");
+  ui.intentUncertainList = append(uncertainIntent, "ul");
+  ui.intentClarification = append(ui.intentLedger, "aside", "bob-intent-clarification");
+  ui.intentClarification.setAttribute("role", "note");
+  append(ui.intentClarification, "span", "bob-intent-clarification-mark", "?");
+  var clarificationCopy = append(ui.intentClarification, "div");
+  append(clarificationCopy, "p", "bob-intent-label", "Clarification cue");
+  ui.intentClarificationText = append(clarificationCopy, "p", "bob-intent-clarification-text");
+
   ui.brief = append(ui.dashboard, "section", "bob-brief bob-card");
   var briefHeading = append(ui.brief, "div", "bob-brief-heading");
   var briefHeadingCopy = append(briefHeading, "div");
@@ -706,6 +743,192 @@
       return { label: key.replace(/([A-Z])/g, " $1").replace(/^./, function (letter) { return letter.toUpperCase(); }), value: securityText(value[key]) };
     });
     return [{ label: "Local signal", value: securityText(value) }];
+  }
+  function intentHasValue(value) {
+    if (Array.isArray(value)) return value.length > 0;
+    if (value && typeof value === "object") return Object.keys(value).length > 0;
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  }
+  function intentText(value) {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    if (Array.isArray(value)) return value.map(intentText).filter(Boolean).join(" · ");
+    if (typeof value === "object") {
+      var preferred = ["text", "value", "summary", "detail", "message", "label", "goal", "objective", "whatIsBeingBuilt"];
+      for (var index = 0; index < preferred.length; index += 1) {
+        if (intentHasValue(value[preferred[index]])) return intentText(value[preferred[index]]);
+      }
+    }
+    return "";
+  }
+  function firstIntentValue(values) {
+    for (var index = 0; index < values.length; index += 1) {
+      if (intentHasValue(values[index])) return values[index];
+    }
+    return null;
+  }
+  function intentApiSnapshot(memory) {
+    if (!memory) return {};
+    if (memory.intentLedger && typeof memory.intentLedger === "object") return memory.intentLedger;
+    if (!core) return {};
+    var methods = ["intentLedgerFromMemory", "deriveIntentLedger", "getIntentLedger", "extractIntentLedger"];
+    for (var index = 0; index < methods.length; index += 1) {
+      var method = core[methods[index]];
+      if (typeof method !== "function") continue;
+      try {
+        var result = method(memory);
+        if (result && typeof result === "object") return result.ledger || result;
+      } catch (error) { /* Intent APIs are optional; use the existing memory shape below. */ }
+    }
+    if (typeof core.intentLedgerFromMessages === "function") {
+      try {
+        var derived = core.intentLedgerFromMessages(memory.messages || [], null, memory.updatedAt || timestamp());
+        if (derived && typeof derived === "object") return derived;
+      } catch (error) { /* The bundled core may predate the intent ledger API. */ }
+    }
+    return {};
+  }
+  function intentScopeLabel(value) {
+    var text = intentText(value);
+    if (text === "demo") return "Demo / prototype";
+    if (text === "production") return "Production";
+    if (text === "unspecified") return "Unspecified";
+    return text;
+  }
+  function intentLedgerStatusItems(items, status) {
+    return (Array.isArray(items) ? items : []).filter(function (item) {
+      return item && item.status === status && intentText(item.text);
+    }).slice(-4).map(function (item) {
+      var meta = [
+        item.scope && item.scope !== "unspecified" ? "Scope: " + intentScopeLabel(item.scope) : "",
+        item.confidence ? "Confidence: " + intentConfidenceText(item.confidence) : "",
+        status === "replaced" ? (item.reason ? intentText(item.reason) : "Superseded by a later user statement") : ""
+      ].filter(Boolean).join(" · ");
+      return { text: intentText(item.text), meta: meta };
+    });
+  }
+  function intentConfidenceText(value) {
+    if (value && typeof value === "object") {
+      value = firstIntentValue([value.label, value.name, value.value, value.score, value.confidence]);
+    }
+    if (typeof value === "number" && isFinite(value)) {
+      var number = value <= 1 ? value * 100 : value;
+      return Math.round(Math.max(0, Math.min(100, number))) + "%";
+    }
+    return intentText(value);
+  }
+  function intentConfidencePercent(value) {
+    if (value && typeof value === "object") value = firstIntentValue([value.score, value.confidence, value.value]);
+    if (typeof value === "number" && isFinite(value)) return value <= 1 ? value * 100 : value;
+    if (typeof value === "string") {
+      var match = value.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (match) return Number(match[1]);
+    }
+    return null;
+  }
+  function intentItems(value, kind) {
+    if (!intentHasValue(value)) return [];
+    var values = Array.isArray(value) ? value : [value];
+    return values.map(function (item) {
+      if (!item || typeof item !== "object") return { text: intentText(item), meta: "" };
+      var text = intentText(firstIntentValue([item.change, item.item, item.text, item.title, item.question, item.reason, item.detail, item.value]));
+      var meta = kind === "changed"
+        ? [intentText(item.impact) ? "Impact: " + intentText(item.impact) : "", intentConfidenceText(item.confidence) ? "Confidence: " + intentConfidenceText(item.confidence) : ""].filter(Boolean).join(" · ")
+        : intentText(firstIntentValue([item.reason, item.detail, item.impact]));
+      return { text: text || intentText(item), meta: meta };
+    }).filter(function (item) { return !!item.text; }).slice(0, 4);
+  }
+  function intentClarificationText(value) {
+    var text = intentText(value);
+    if (!text || /^(?:no explicit user question detected|not provided|unknown)\.?$/i.test(text)) return "";
+    return text.replace(/^Most recent user question \(possibly already answered\):\s*/i, "");
+  }
+  function intentLedgerSnapshot(memory) {
+    var project = memory && memory.project || {};
+    var guidance = memory && memory.guidance || {};
+    if ((!guidance || !guidance.currentGoal) && core && typeof core.deriveGuidance === "function") {
+      try { guidance = core.deriveGuidance(memory.messages || [], memory.suggestions && memory.suggestions.objective); } catch (error) { /* Keep the bounded memory fallback. */ }
+    }
+    var api = intentApiSnapshot(memory);
+    var ledgerItems = Array.isArray(api.items) ? api.items : [];
+    var currentLedgerItem = ledgerItems.slice().reverse().find(function (item) {
+      return item && item.status === "current" && item.type === "goal";
+    }) || ledgerItems.slice().reverse().find(function (item) { return item && item.status === "current"; });
+    var response = state.mentor && state.mentor.response || responseFromHistory();
+    var understanding = response && response.projectUnderstanding || {};
+    var confirmed = !!(memory && memory.overrides && Object.prototype.hasOwnProperty.call(memory.overrides, "objective"));
+    var current = intentText(firstIntentValue([
+      api.currentIntent, api.current, api.intent, api.goal, api.objective,
+      memory && memory.intent && memory.intent.current, currentLedgerItem && currentLedgerItem.text,
+      project.objective, guidance.currentGoal, understanding.whatIsBeingBuilt, project.description
+    ]));
+    var scope = intentScopeLabel(intentText(firstIntentValue([api.scope, api.intentScope, currentLedgerItem && currentLedgerItem.scope, project.scope, project.boundary])));
+    if (!scope || scope === "Unspecified") {
+      scope = "";
+      var scopeParts = [];
+      if (intentHasValue(project.audience)) scopeParts.push("Audience: " + intentText(project.audience));
+      if (intentHasValue(project.currentStage)) scopeParts.push("Stage: " + intentText(project.currentStage));
+      if (intentHasValue(project.requirements)) scopeParts.push("Requirements: " + intentText(project.requirements));
+      scope = scopeParts.join(" · ");
+    }
+    if (!scope) scope = "One approved conversation · local memory";
+    var rawConfidence = firstIntentValue([api.confidence, api.intentConfidence, currentLedgerItem && currentLedgerItem.confidence, project.confidence, project.intentConfidence, understanding.confidence]);
+    var confidence = intentConfidenceText(rawConfidence);
+    if (!confidence) confidence = confirmed ? "User-confirmed" : current ? "Suggested / unconfirmed" : "Unknown";
+    var changed = intentLedgerStatusItems(ledgerItems, "replaced");
+    if (!changed.length) changed = intentItems(firstIntentValue([api.replacedItems, api.replaced, api.replacements, api.changedRequirements, response && response.changedRequirements]), "changed");
+    if (!changed.length && confirmed && memory.suggestions && memory.suggestions.objective && memory.suggestions.objective !== memory.project.objective) {
+      changed.push({ text: "Objective replaced by a saved correction", meta: "Saved by you · automatic suggestion retained for review" });
+    }
+    var uncertain = intentLedgerStatusItems(ledgerItems, "uncertain");
+    if (!uncertain.length) uncertain = intentItems(firstIntentValue([api.uncertainItems, api.uncertain, api.uncertainties, api.uncertainty, response && response.uncertainty]), "uncertain");
+    var clarification = intentClarificationText(firstIntentValue([
+      api.clarificationCue, api.clarification, api.openQuestions,
+      guidance.clarificationCue, response && response.openQuestions, guidance.openQuestions
+    ]));
+    return {
+      current: current || "No current intent captured yet.",
+      hasCurrent: !!current,
+      scope: scope,
+      confidence: confidence,
+      confidencePercent: intentConfidencePercent(rawConfidence),
+      source: intentText(firstIntentValue([api.source, api.provenance, guidance.source])) || (confirmed ? "Saved by you · not independently verified" : response ? "Optional mentor suggestion · review before relying on it" : "Deterministic local rules over bounded captured messages"),
+      changed: changed,
+      uncertain: uncertain,
+      clarification: clarification
+    };
+  }
+  function renderIntentItems(parent, items, emptyText) {
+    parent.textContent = "";
+    if (!items.length) {
+      var empty = append(parent, "li", "bob-intent-empty", emptyText);
+      empty.setAttribute("role", "status");
+      return;
+    }
+    items.forEach(function (item) {
+      var row = append(parent, "li", "bob-intent-item");
+      append(row, "span", "bob-intent-item-mark", "•");
+      var copy = append(row, "div");
+      append(copy, "p", "bob-intent-item-text", item.text);
+      if (item.meta) append(copy, "p", "bob-intent-item-meta", item.meta);
+    });
+  }
+  function renderIntentLedger(memory) {
+    var ledger = intentLedgerSnapshot(memory);
+    ui.intentLedgerStatus.textContent = ledger.hasCurrent ? "Live local snapshot" : "Waiting for captured intent";
+    ui.intentCurrent.textContent = ledger.current;
+    ui.intentSource.textContent = ledger.source;
+    ui.intentScope.textContent = ledger.scope;
+    ui.intentConfidence.textContent = ledger.confidence;
+    var percent = ledger.confidencePercent;
+    show(ui.intentConfidenceMeter, percent !== null);
+    ui.intentConfidenceMeter.classList.toggle("is-unknown", percent === null);
+    ui.intentConfidenceFill.style.width = percent === null ? "0%" : Math.max(0, Math.min(100, percent)) + "%";
+    renderIntentItems(ui.intentChangedList, ledger.changed, "No replaced items recorded yet.");
+    renderIntentItems(ui.intentUncertainList, ledger.uncertain, "No explicit uncertainty recorded yet.");
+    ui.intentClarificationText.textContent = ledger.clarification;
+    show(ui.intentClarification, !!ledger.clarification);
   }
   function securitySnapshot(memory) {
     var memorySecurity = memory && memory.security;
@@ -1306,6 +1529,7 @@
     ui.questionAnswer.textContent = state.questionAnswer;
     show(ui.questionAnswer, !!state.questionAnswer);
     if (hasMemory) {
+      renderIntentLedger(state.memory);
       renderBrief(state.memory);
       renderSecurity(state.memory);
     }

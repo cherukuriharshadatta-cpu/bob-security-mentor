@@ -1,6 +1,6 @@
 # Bob — AI Mentor extension prototype
 
-**Version 0.4.5: local project memory, animated evidence-driven security flow, conservative readiness signals, and optional Nemotron cloud mentor chat.**
+**Version 0.5.0: local project memory, living intent ledger, animated evidence-driven security flow, conservative readiness signals, and optional Nemotron cloud mentor chat.**
 
 Bob is a Chrome/Edge Manifest V3 extension beside one explicitly approved ChatGPT conversation. Bob never sends messages, fills inputs, clicks ChatGPT controls, or uses private APIs. Local mode sends no conversation data to a network service. Optional cloud mode sends approved context only after separate cloud consent through the Bob backend → OpenRouter → Nemotron. Bob's own buttons, memory editor, mentor composer, and user-triggered Markdown download are interactive.
 
@@ -11,7 +11,7 @@ Independent extension; not affiliated with or endorsed by OpenAI or ChatGPT. Use
 1. Open `chrome://extensions` or `edge://extensions`.
 2. Enable **Developer mode**.
 3. For a new installation, **Load unpacked** and select the folder containing `manifest.json`.
-4. For an existing installation, click its **Reload** button. Confirm version **0.4.5**.
+4. For an existing installation, click its **Reload** button. Confirm version **0.5.0**.
 5. **Refresh your ChatGPT tab as well.** Reloading the extension alone leaves old content scripts on an existing page.
 6. Open a saved conversation on `https://chatgpt.com/c/<id>` (or `/g/<slug>/c/<id>`).
 7. Open **Bob**, read the terms/privacy notice, tick the checkbox, and select **Allow THIS CONVERSATION**.
@@ -36,6 +36,7 @@ No package installation or model download is needed for the extension. Cloud mod
 - Lets you correct or clear individual fields. Your edits override automatic suggestions; differing suggestions are shown for review. An edited value is **self-reported**, not proof Bob verified it.
 - Provides saved Markdown preview and download. This is a snapshot, **not an automatically updated disk file**.
 - Shows a local **Security & readiness** review across secrets, identity, validation, data access, abuse controls, errors, logging/privacy, dependencies, web sessions, and deployment configuration.
+- Maintains a bounded **Intent ledger** from explicit user statements only. It tracks current, replaced, and uncertain goals/requirements/constraints/decisions with source turn, scope, confidence, and clarification cues. Assistant text cannot establish user intent.
 - Shows an animated **Security flow** from project intent through features, inputs, authentication, data/secrets, and verification. Nodes are labelled Observed, Mentioned, Needs review, Self-reported, or Not verified; the flow never presents a local signal as proof of safety.
 - Provides a separate **Mentor chat** with Bob's visual states (idle, listening, thinking, speaking, concerned), local-rules mode, and optional cloud mode through the local Bob backend → OpenRouter → Nemotron.
 - Offers a private local-rules question box on the dashboard and a separate Bob chat composer. Neither writes to ChatGPT. Bob chat history is bounded and stored locally per approved conversation.
@@ -105,4 +106,4 @@ After refreshing both extension and tab, approve a saved conversation and wait t
 - **Message elements from navigation still present:** refresh the current chat and activate again.
 - **Storage/locking/stylesheet failure:** use the visible retry control or reload the extension and tab. Capture stays off on failure.
 
-The screenshot reported with version 0.1.0 demonstrated zero observations but did not reveal its exact DOM structure. Version 0.2.0 fixes code-level capture and parsing defects and adds diagnostics; the live-site repair still needs browser confirmation.
+Earlier screenshots demonstrated zero observations but did not reveal the exact DOM structure. Version 0.5.0 includes bounded diagnostics, resilient capture, the intent ledger, and the animated security flow; current ChatGPT markup still requires live browser confirmation after each extension reload.

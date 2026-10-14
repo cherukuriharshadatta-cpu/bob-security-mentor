@@ -4,7 +4,7 @@
 
 Bob should become a patient development mentor: understand a beginner's project, teach one step at a time, retain decisions, adapt to requirement changes, and guide testing and deployment. Its interface remains an opt-in, read-only companion attached to one chosen ChatGPT conversation. It must never claim to have modified code, run tests, or deployed anything itself.
 
-## Implemented foundation (0.4.5)
+## Implemented foundation (0.5.0)
 
 - Explicit versioned consent, per-conversation capture gates, local storage, pause and revocation.
 - Capture diagnostics, ordered bounded messages and navigation guards.
@@ -22,6 +22,7 @@ Bob should become a patient development mentor: understand a beginner's project,
 - Live capture state distinguishes successful, partial assistant-only, failed, stale, and waiting captures; cloud sending is blocked unless the latest capture includes a user message.
 - Bounded diagnostic counters show whether user or assistant labels were matched, captured, or rejected and why, without exposing conversation text.
 - Dashboard includes a Shrike-inspired animated evidence map: project intent → feature flow → inputs → auth boundary → data/secrets → verification. Animation is reduced-motion aware and security states remain explicitly evidence-labeled.
+- Dashboard includes a living intent ledger. It records only explicit user intent, preserves replaced items, marks uncertain statements, tracks demo/production scope and confidence, and surfaces a clarification cue without interrupting every minor ambiguity.
 - Node regression tests over DOM fixtures and simulated extension lifecycle.
 
 **Not implemented or not verified:** a live OpenRouter request with a real hackathon key, semantic requirement comparison quality, personalized lesson quality, automatic roadmap generation quality, code execution, actual progress verification, live disk-file updates, other AI websites, production authentication/quotas for a remote deployment, GitHub sync, or a production legal/store-review process.
