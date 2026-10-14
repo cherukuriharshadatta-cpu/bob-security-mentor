@@ -1,6 +1,6 @@
-# Bob — AI Mentor extension prototype
+# Bob — AI Mentor Agent workspace + optional extension adapter
 
-**Version 0.5.0: local project memory, living intent ledger, animated evidence-driven security flow, conservative readiness signals, and optional Nemotron cloud mentor chat.**
+**Version 0.6.0: standalone Bob Agent workspace, living intent ledger, animated evidence-driven security flow, conservative readiness signals, and optional Nemotron cloud mentor chat.**
 
 Bob is a Chrome/Edge Manifest V3 extension beside one explicitly approved ChatGPT conversation. Bob never sends messages, fills inputs, clicks ChatGPT controls, or uses private APIs. Local mode sends no conversation data to a network service. Optional cloud mode sends approved context only after separate cloud consent through the Bob backend → OpenRouter → Nemotron. Bob's own buttons, memory editor, mentor composer, and user-triggered Markdown download are interactive.
 
@@ -16,6 +16,19 @@ Independent extension; not affiliated with or endorsed by OpenAI or ChatGPT. Use
 6. Open a saved conversation on `https://chatgpt.com/c/<id>` (or `/g/<slug>/c/<id>`).
 7. Open **Bob**, read the terms/privacy notice, tick the checkbox, and select **Allow THIS CONVERSATION**.
 8. Wait about two seconds for settled-page checks and initial capture.
+
+## Run the standalone Bob Agent workspace
+
+The standalone workspace is now the recommended hackathon demo. It owns the interface and animation, so it does not depend on another AI website's DOM. The extension remains an optional ChatGPT context adapter.
+
+```powershell
+$env:BOB_WEB_PORT = "4173"
+node server/workspace-server.mjs
+```
+
+Open `http://127.0.0.1:4173`. Bob starts with a bounded login-app demo, then lets you choose private demo versus public deployment, inspect the intent ledger, open the authentication lesson, mark human-run checks, and ask local deterministic questions. If you enable the optional cloud checkbox, a question is sent only to the same-origin local Bob server; the server may forward approved context to OpenRouter when `OPENROUTER_API_KEY` is configured.
+
+The workspace also has a pure model layer in `web/project.js`: use its brief/transcript import APIs to build a real workspace without scraping ChatGPT. No workspace state is persisted by the browser demo unless a future caller explicitly adds persistence.
 
 No package installation or model download is needed for the extension. Cloud mode requires a server-side OpenRouter key and the local backend described in `server/README.md`; the key must never be entered into Bob or committed. No access to the ChatGPT home page, temporary chats without a saved conversation ID, share pages, or other AI sites is supported for capture.
 
@@ -38,6 +51,7 @@ No package installation or model download is needed for the extension. Cloud mod
 - Shows a local **Security & readiness** review across secrets, identity, validation, data access, abuse controls, errors, logging/privacy, dependencies, web sessions, and deployment configuration.
 - Maintains a bounded **Intent ledger** from explicit user statements only. It tracks current, replaced, and uncertain goals/requirements/constraints/decisions with source turn, scope, confidence, and clarification cues. Assistant text cannot establish user intent.
 - Shows an animated **Security flow** from project intent through features, inputs, authentication, data/secrets, and verification. Nodes are labelled Observed, Mentioned, Needs review, Self-reported, or Not verified; the flow never presents a local signal as proof of safety.
+- Includes a standalone **Bob Agent workspace** with a local project model, explicit-role transcript import, evidence-labelled lessons, scope clarification, human-reported verification checklist, local mentor teaching, and optional same-origin cloud mentor requests.
 - Provides a separate **Mentor chat** with Bob's visual states (idle, listening, thinking, speaking, concerned), local-rules mode, and optional cloud mode through the local Bob backend → OpenRouter → Nemotron.
 - Offers a private local-rules question box on the dashboard and a separate Bob chat composer. Neither writes to ChatGPT. Bob chat history is bounded and stored locally per approved conversation.
 
@@ -88,12 +102,17 @@ Run from this folder:
 node tests/smoke.mjs
 node tests/lifecycle.mjs
 node server/test.mjs
+node tests/workspace-model.mjs
+node server/workspace-test.mjs
 node --check src/core.js
 node --check src/content.js
 node --check server/openrouter-proxy.mjs
+node --check server/workspace-server.mjs
+node --check web/project.js
+node --check web/app.js
 ```
 
-The first suite checks the manifest, URL boundaries, synthetic DOM capture, current goals, bounded history, immutable edits, schema migration, security signals, and Markdown. The second runs real content/core code in a **mocked** DOM/storage environment to check consent, streaming, navigation, delayed callbacks, deletion races, cross-tab changes, and storage failure. The server suite checks the local Nemotron/OpenRouter proxy without a live key.
+The first suite checks the manifest, URL boundaries, synthetic DOM capture, current goals, bounded history, immutable edits, schema migration, security signals, and Markdown. The second runs real content/core code in a **mocked** DOM/storage environment to check consent, streaming, navigation, delayed callbacks, deletion races, cross-tab changes, and storage failure. The workspace-model suite checks explicit-role import, intent provenance, scope changes, immutable checks, lessons and safe export. The workspace-server suite checks the loopback static server, traversal/private-file blocking, origin/host restrictions and mocked cloud forwarding. Server checks use no live key unless you configure one yourself.
 
 These tests do not validate Chrome's real layout, content-script Web Locks, stylesheet loading, downloads, or the current ChatGPT DOM. Follow `tests/MANUAL.md` in Chrome/Edge. No dedicated lint/typecheck tooling is installed; this is plain JavaScript with Node syntax checks and no build pipeline.
 

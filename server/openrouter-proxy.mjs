@@ -168,7 +168,7 @@ export function validateRequest(input) {
   }
 
   if (input.cloudConsent !== true) return invalid("consent_required");
-  if (typeof input.conversationKey !== "string" || input.conversationKey.length > 200 || !/^chatgpt:[A-Za-z0-9_-]+$/.test(input.conversationKey)) return invalid();
+  if (typeof input.conversationKey !== "string" || input.conversationKey.length > 200 || !/^(?:chatgpt|workspace):[A-Za-z0-9_-]+$/.test(input.conversationKey)) return invalid();
   if (!Array.isArray(input.messages) || input.messages.length > MAX_MESSAGE_COUNT) return invalid();
   if (!isBoundedString(input.userMessage, MAX_TEXT_LENGTH, false)) return invalid();
 
@@ -443,7 +443,9 @@ export function getConfig(env = process.env) {
   };
 }
 
-async function handleMentor(req, res, origin, config, fetchImpl) {
+// HTTP callers enforce their own Host/Origin policy before entering this shared
+// pipeline. Pass null for origin when serving a same-origin workspace without CORS.
+export async function handleMentor(req, res, origin, config, fetchImpl) {
   const type = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
   if (type !== "application/json") {
     sendJson(res, 415, publicError("unsupported_media_type", "Use application/json."), origin);

@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10161b">
+    <meta name="description" content="Bob Agent hackathon workspace for turning project intent into verified next steps.">
+    <title>Bob / Agent workspace</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div id="workspace-root" class="app-shell" data-controller="bob-workspace" data-workspace-state="ready">
+      <header class="topbar" data-region="header">
+        <a class="brand-lockup" href="#workspace-root" aria-label="Bob Agent workspace home" data-action="go-home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="brand-name">BOB</span>
+          <span class="brand-divider" aria-hidden="true">/</span>
+          <span class="brand-context">agent workspace</span>
+        </a>
+
+        <div class="project-context" aria-label="Active project">
+          <span class="context-label">ACTIVE PROJECT</span>
+           <strong data-project-name="Login demo">Login demo</strong>
+          <span class="context-separator" aria-hidden="true">·</span>
+          <span class="context-mode">hackathon build</span>
+        </div>
+
+        <div class="topbar-actions">
+          <span id="live-status" class="live-status" data-status="live">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span data-status-label>Live evidence</span>
+          </span>
+          <button id="workspace-menu" class="icon-button" type="button" aria-label="Open workspace menu" aria-expanded="false" data-action="toggle-menu">
+            <span aria-hidden="true">•••</span>
+          </button>
+          <button id="pause-workspace" class="pause-button" type="button" data-action="toggle-pause" data-state="ready">
+            <span class="pause-icon" aria-hidden="true">Ⅱ</span>
+            <span data-pause-label>Pause</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="workspace-grid">
+        <aside id="intent-ledger" class="panel ledger-panel" aria-labelledby="intent-ledger-title" data-region="intent-ledger">
+          <div class="panel-heading panel-heading--ledger">
+            <div>
+              <p class="eyebrow">Memory / 01</p>
+              <h2 id="intent-ledger-title">Intent ledger</h2>
+            </div>
+            <button class="round-button" type="button" aria-label="Add an intent entry" data-action="add-intent">
+              <span aria-hidden="true">+</span>
+            </button>
+          </div>
+
+          <div class="ledger-focus" id="intent-current" data-intent-id="intent-current" data-state="current">
+            <div class="focus-heading">
+              <span class="micro-label">CURRENT FOCUS</span>
+              <span id="intent-confidence" class="confidence-badge" data-confidence="82">82%</span>
+            </div>
+            <p id="ledger-focus-copy">Make trust visible while helping students find what they need.</p>
+            <div class="confidence-meter" aria-label="Intent confidence: 82 percent">
+              <span data-confidence-fill></span>
+            </div>
+            <p class="source-note"><span class="source-glyph" aria-hidden="true">↳</span> from your brief · just now</p>
+          </div>
+
+          <div class="ledger-section-heading">
+            <span class="micro-label">CAPTURED THREAD</span>
+            <span class="ledger-count" id="intent-count">06</span>
+          </div>
+          <ol id="intent-list" class="ledger-list" aria-label="Captured project intent">
+            <li class="ledger-entry is-current" data-intent-id="intent-trust" data-state="current">
+              <button class="ledger-entry-button" type="button" aria-pressed="true" data-action="select-intent">
+                <span class="entry-marker" aria-hidden="true"><span></span></span>
+                <span class="entry-copy">
+                  <strong>Trust should be visible</strong>
+                  <small>product principle · confirmed</small>
+                </span>
+                <span class="entry-chevron" aria-hidden="true">↗</span>
+              </button>
+            </li>
+            <li class="ledger-entry" data-intent-id="intent-audience" data-state="confirmed">
+              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
+                <span class="entry-marker entry-marker--mint" aria-hidden="true"><span></span></span>
+                <span class="entry-copy">
+                  <strong>Students are the first users</strong>
+                  <small>audience · observed</small>
+                </span>
+                <span class="entry-chevron" aria-hidden="true">↗</span>
+              </button>
+            </li>
+            <li class="ledger-entry" data-intent-id="intent-scope" data-state="confirmed">
+              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
+                <span class="entry-marker entry-marker--mint" aria-hidden="true"><span></span></span>
+                <span class="entry-copy">
+                  <strong>Demo before production</strong>
+                  <small>scope · observed</small>
+                </span>
+                <span class="entry-chevron" aria-hidden="true">↗</span>
+              </button>
+            </li>
+            <li class="ledger-entry" data-intent-id="intent-stack" data-state="mentioned">
+              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
+                <span class="entry-marker entry-marker--gold" aria-hidden="true"><span></span></span>
+                <span class="entry-copy">
+                  <strong>Web app, JavaScript</strong>
+                  <small>stack · mentioned</small>
+                </span>
+                <span class="entry-chevron" aria-hidden="true">↗</span>
+              </button>
+            </li>
+            <li class="ledger-entry" data-intent-id="intent-access" data-state="uncertain">
+              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
+                <span class="entry-marker entry-marker--muted" aria-hidden="true"><span></span></span>
+                <span class="entry-copy">
+                  <strong>Who can post a listing?</strong>
+                  <small>access model · needs clarity</small>
+                </span>
+                <span class="entry-chevron" aria-hidden="true">↗</span>
+              </button>
+            </li>
+            <li class="ledger-entry" data-intent-id="intent-data" data-state="uncertain">
+              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
+                <span class="entry-marker entry-marker--muted" aria-hidden="true"><span></span></span>
+                <span class="entry-copy">
+                  <strong>What data must stay private?</strong>
+                  <small>data boundary · open</small>
+                </span>
+                <span class="entry-chevron" aria-hidden="true">↗</span>
+              </button>
+            </li>
+          </ol>
+
+          <div class="ledger-footer">
+            <span class="footer-glyph" aria-hidden="true">⌁</span>
+            <p>Only your stated intent enters the ledger. Suggestions stay labelled.</p>
+          </div>
+        </aside>
+
+        <main id="project-stage" class="main-stage" aria-labelledby="workspace-title" data-region="project-stage">
+          <div class="stage-heading">
+            <div>
+              <p class="eyebrow eyebrow--orange">BUILD / SIGNAL MAP</p>
+              <h1 id="workspace-title">Build with signal, not guesswork.</h1>
+              <p class="stage-description">A calm read on what your project means, what it touches, and what still needs a human decision.</p>
+            </div>
+            <div class="stage-tabs" role="tablist" aria-label="Workspace views">
+              <button id="flow-tab" class="stage-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="flow-stage" data-view="flow" data-action="switch-view">Evidence map</button>
+              <button id="timeline-tab" class="stage-tab" type="button" role="tab" aria-selected="false" aria-controls="timeline" data-view="timeline" data-action="switch-view">Timeline</button>
+            </div>
+          </div>
+
+          <section id="flow-stage" class="panel flow-panel" aria-labelledby="flow-title" data-view-panel="flow" data-state="active">
+            <div class="panel-heading flow-heading">
+              <div>
+                <p class="eyebrow">PROJECT FLOW / 06 NODES</p>
+                <h2 id="flow-title">From intent to proof</h2>
+              </div>
+              <div class="flow-legend" aria-label="Evidence state legend">
+                <span class="legend-item"><i class="legend-swatch legend-swatch--observed" aria-hidden="true"></i>Observed</span>
+                <span class="legend-item"><i class="legend-swatch legend-swatch--mentioned" aria-hidden="true"></i>Mentioned</span>
+                <span class="legend-item"><i class="legend-swatch legend-swatch--review" aria-hidden="true"></i>Needs review</span>
+              </div>
+              <button id="replay-flow" class="secondary-button replay-button" type="button" data-action="replay-flow">Replay flow <span aria-hidden="true">↻</span></button>
+            </div>
+
+            <div id="flow-map" class="flow-map" data-controller="flow-map">
+              <svg class="flow-svg" viewBox="0 0 960 430" role="img" aria-labelledby="flow-map-title flow-map-description" preserveAspectRatio="xMidYMid meet">
+                <title id="flow-map-title">CampusCart evidence map</title>
+                <desc id="flow-map-description">A connected path from product intent through experience, inputs, authentication, data, and verification. Authentication and verification need review.</desc>
+                <defs>
+                  <pattern id="map-grid" width="32" height="32" patternUnits="userSpaceOnUse">
+                    <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#233139" stroke-width="1" opacity=".56"></path>
+                  </pattern>
+                  <linearGradient id="map-wash" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#172128"></stop>
+                    <stop offset="1" stop-color="#10181d"></stop>
+                  </linearGradient>
+                  <linearGradient id="route-gradient" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" stop-color="#ef9a70"></stop>
+                    <stop offset=".52" stop-color="#86ccb0"></stop>
+                    <stop offset="1" stop-color="#efbf73"></stop>
+                  </linearGradient>
+                  <filter id="node-glow" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
+                    <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+                  </filter>
+                </defs>
+
+                <rect class="map-background" x="0" y="0" width="960" height="430" rx="18" fill="url(#map-wash)"></rect>
+                <rect class="map-grid" x="0" y="0" width="960" height="430" rx="18" fill="url(#map-grid)"></rect>
+                <path class="route route--ghost flow-connector" data-flow-from="intent" data-flow-to="experience" d="M120 228 C208 104 286 345 382 215 S548 122 626 232 S792 337 858 177" fill="none"></path>
+                <path class="route route--active flow-connector" data-flow-from="intent" data-flow-to="verification" d="M120 228 C208 104 286 345 382 215 S548 122 626 232 S792 337 858 177" fill="none"></path>
+                <path class="route route--branch flow-connector" data-flow-from="inputs" data-flow-to="auth" d="M382 215 C424 292 468 313 518 286" fill="none"></path>
+                <circle class="route-pulse route-pulse--one" cx="222" cy="191" r="4" aria-hidden="true"></circle>
+                <circle class="route-pulse route-pulse--two" cx="510" cy="179" r="4" aria-hidden="true"></circle>
+                <circle class="route-pulse route-pulse--three" cx="746" cy="267" r="4" aria-hidden="true"></circle>
+
+                <g class="flow-node flow-node--observed" data-flow-node="intent" tabindex="0" role="button" aria-label="Intent: observed" transform="translate(52 170)">
+                  <circle class="node-halo" cx="68" cy="58" r="59"></circle>
+                  <rect class="node-card" width="136" height="116" rx="16"></rect>
+                  <circle class="node-icon-ring" cx="68" cy="42" r="18"></circle>
+                  <path class="node-icon" d="M61 42h14M68 35v14" fill="none"></path>
+                  <text class="node-kicker" x="18" y="78">01 / ORIGIN</text>
+                  <text class="node-title" x="18" y="97">Intent</text>
+                  <text class="node-state" x="18" y="109">observed</text>
+                </g>
+
+                <g class="flow-node flow-node--observed" data-flow-node="experience" tabindex="0" role="button" aria-label="Experience: observed" transform="translate(218 72)">
+                  <circle class="node-halo" cx="68" cy="58" r="59"></circle>
+                  <rect class="node-card" width="136" height="116" rx="16"></rect>
+                  <circle class="node-icon-ring" cx="68" cy="42" r="18"></circle>
+                  <path class="node-icon" d="M58 39h20M58 46h12" fill="none"></path>
+                  <text class="node-kicker" x="18" y="78">02 / SURFACE</text>
+                  <text class="node-title" x="18" y="97">Experience</text>
+                  <text class="node-state" x="18" y="109">observed</text>
+                </g>
+
+                <g class="flow-node flow-node--mentioned" data-flow-node="inputs" tabindex="0" role="button" aria-label="Inputs: mentioned" transform="translate(316 176)">
+                  <circle class="node-halo" cx="68" cy="58" r="59"></circle>
+                  <rect class="node-card" width="136" height="116" rx="16"></rect>
+                  <circle class="node-icon-ring" cx="68" cy="42" r="18"></circle>
+                  <path class="node-icon" d="M61 36v12M68 32v16M75 39v9" fill="none"></path>
+                  <text class="node-kicker" x="18" y="78">03 / SIGNAL</text>
+                  <text class="node-title" x="18" y="97">Inputs</text>
+                  <text class="node-state" x="18" y="109">mentioned</text>
+                </g>
+
+                <g class="flow-node flow-node--review" data-flow-node="auth" tabindex="0" role="button" aria-label="Auth boundary: needs review" transform="translate(478 94)">
+                  <circle class="node-halo" cx="68" cy="58" r="66"></circle>
+                  <rect class="node-card" width="136" height="116" rx="16"></rect>
+                  <circle class="node-icon-ring" cx="68" cy="42" r="18"></circle>
+                  <path class="node-icon" d="M60 41h16v11H60zM63 41v-4c0-6 10-6 10 0v4" fill="none"></path>
+                  <text class="node-kicker" x="18" y="78">04 / BOUNDARY</text>
+                  <text class="node-title" x="18" y="97">Auth</text>
+                  <text class="node-state" x="18" y="109">needs review</text>
+                </g>
+
+                <g class="flow-node flow-node--mentioned" data-flow-node="data" tabindex="0" role="button" aria-label="Data and secrets: mentioned" transform="translate(616 210)">
+                  <circle class="node-halo" cx="68" cy="58" r="59"></circle>
+                  <rect class="node-card" width="136" height="116" rx="16"></rect>
+                  <circle class="node-icon-ring" cx="68" cy="42" r="18"></circle>
+                  <path class="node-icon" d="M60 37h16M60 43h16M60 49h10" fill="none"></path>
+                  <text class="node-kicker" x="18" y="78">05 / STORAGE</text>
+                  <text class="node-title" x="18" y="97">Data</text>
+                  <text class="node-state" x="18" y="109">mentioned</text>
+                </g>
+
+                <g class="flow-node flow-node--review" data-flow-node="verification" tabindex="0" role="button" aria-label="Verification: needs review" transform="translate(790 120)">
+                  <circle class="node-halo" cx="68" cy="58" r="66"></circle>
+                  <rect class="node-card" width="136" height="116" rx="16"></rect>
+                  <circle class="node-icon-ring" cx="68" cy="42" r="18"></circle>
+                  <path class="node-icon" d="m59 42 6 6 12-13" fill="none"></path>
+                  <text class="node-kicker" x="18" y="78">06 / PROOF</text>
+                  <text class="node-title" x="18" y="97">Verify</text>
+                  <text class="node-state" x="18" y="109">needs review</text>
+                </g>
+
+                <g class="map-annotation" transform="translate(430 318)">
+                  <rect width="178" height="36" rx="18"></rect>
+                  <circle cx="19" cy="18" r="4"></circle>
+                  <text x="32" y="22">one decision unlocks flow</text>
+                </g>
+              </svg>
+            </div>
+
+            <div id="flow-detail" class="flow-detail" data-flow-detail="auth" data-state="needs-review">
+              <span class="detail-mark" aria-hidden="true">!</span>
+              <p><strong>Auth boundary needs a decision.</strong> Who can create a listing, and what happens when a session expires?</p>
+              <button class="text-button" type="button" data-action="open-lesson" data-target="auth">Explore lesson <span aria-hidden="true">→</span></button>
+            </div>
+            <aside id="clarification-prompt" class="clarification-prompt" data-clarification="deployment" role="note" aria-live="polite">
+              <p class="micro-label">ONE HIGH-VALUE QUESTION</p>
+              <p class="clarification-copy">Not verified · Is this a private hackathon demo or something you plan to expose publicly?</p>
+              <div class="clarification-actions">
+                <button class="secondary-button" type="button" data-clarify-choice="demo">Keep it as a demo</button>
+                <button class="primary-button" type="button" data-clarify-choice="public">Plan public deployment</button>
+              </div>
+            </aside>
+          </section>
+
+          <section id="timeline" class="panel timeline-panel" aria-labelledby="timeline-title" data-region="timeline" data-view-panel="timeline" hidden>
+            <div class="panel-heading timeline-heading">
+              <div>
+                <p class="eyebrow">RUN / CHECKPOINTS</p>
+                <h2 id="timeline-title">Verification timeline</h2>
+              </div>
+              <span id="timeline-progress" class="timeline-progress" data-progress="4">4 of 6 clear</span>
+            </div>
+            <ol id="verification-list" class="timeline-track" aria-label="Project verification checkpoints">
+              <li class="timeline-step is-complete" data-timeline-id="intent" data-state="complete">
+                <span class="timeline-dot" aria-hidden="true">✓</span>
+                <span><strong>Intent</strong><small>captured</small></span>
+              </li>
+              <li class="timeline-step is-complete" data-timeline-id="experience" data-state="complete">
+                <span class="timeline-dot" aria-hidden="true">✓</span>
+                <span><strong>Surface</strong><small>mapped</small></span>
+              </li>
+              <li class="timeline-step is-complete" data-timeline-id="inputs" data-state="complete">
+                <span class="timeline-dot" aria-hidden="true">✓</span>
+                <span><strong>Inputs</strong><small>named</small></span>
+              </li>
+              <li class="timeline-step is-current" data-timeline-id="auth" data-state="current">
+                <span class="timeline-dot" aria-hidden="true">04</span>
+                <span><strong>Auth</strong><small>decide next</small></span>
+              </li>
+              <li class="timeline-step" data-timeline-id="data" data-state="queued">
+                <span class="timeline-dot" aria-hidden="true">05</span>
+                <span><strong>Data</strong><small>queued</small></span>
+              </li>
+              <li class="timeline-step" data-timeline-id="verification" data-state="queued">
+                <span class="timeline-dot" aria-hidden="true">06</span>
+                <span><strong>Proof</strong><small>queued</small></span>
+              </li>
+            </ol>
+            <ul id="verification-checklist" class="verification-checklist" aria-label="Human verification checklist"></ul>
+            <ol id="agent-timeline" class="agent-timeline" aria-label="Bob agent activity timeline"></ol>
+            <div id="verification-strip" class="verification-strip" data-state="needs-review">
+              <span class="verification-spark" aria-hidden="true">✦</span>
+              <span><strong>Next smallest step:</strong> define the listing-owner rule in one sentence.</span>
+              <button class="text-button" type="button" data-action="focus-mentor">Ask Bob <span aria-hidden="true">↗</span></button>
+            </div>
+          </section>
+        </main>
+
+        <aside id="evidence-panel" class="panel evidence-panel" aria-labelledby="evidence-title" data-region="evidence-panel">
+          <div class="panel-heading evidence-heading">
+            <div>
+              <p class="eyebrow eyebrow--mint">EVIDENCE / LIVE READ</p>
+              <h2 id="evidence-title">Evidence &amp; lessons</h2>
+            </div>
+            <button class="round-button round-button--quiet" type="button" aria-label="Open evidence filters" data-action="toggle-evidence-filters">
+              <span aria-hidden="true">≡</span>
+            </button>
+          </div>
+
+          <div id="evidence-score" class="evidence-score" data-score="4" data-total="6">
+            <div class="score-ring" aria-hidden="true"><span>04</span><small>/ 06</small></div>
+            <div>
+              <span class="micro-label">READINESS SIGNAL</span>
+              <strong id="evidence-score-label">Early but coherent</strong>
+              <p>Most of the shape is visible. Two boundaries need your call.</p>
+            </div>
+          </div>
+
+          <div class="evidence-section-heading">
+            <span class="micro-label">SIGNALS TO REVIEW</span>
+            <button class="text-button text-button--small" type="button" data-action="show-all-evidence">View all</button>
+          </div>
+          <ul id="evidence-list" class="evidence-list" aria-label="Evidence signals">
+            <li class="evidence-item" data-evidence-id="audience" data-state="verified">
+              <span class="evidence-icon evidence-icon--mint" aria-hidden="true">✓</span>
+              <div><strong>Audience is named</strong><p>Students · observed in brief</p></div>
+              <span class="evidence-state">clear</span>
+            </li>
+            <li class="evidence-item" data-evidence-id="scope" data-state="verified">
+              <span class="evidence-icon evidence-icon--mint" aria-hidden="true">✓</span>
+              <div><strong>Demo scope is explicit</strong><p>Hackathon build · confirmed</p></div>
+              <span class="evidence-state">clear</span>
+            </li>
+            <li class="evidence-item" data-evidence-id="auth" data-state="needs-review">
+              <span class="evidence-icon evidence-icon--orange" aria-hidden="true">!</span>
+              <div><strong>Listing ownership</strong><p>Role boundary · not decided</p></div>
+              <span class="evidence-state">open</span>
+            </li>
+            <li class="evidence-item" data-evidence-id="privacy" data-state="needs-review">
+              <span class="evidence-icon evidence-icon--orange" aria-hidden="true">!</span>
+              <div><strong>Private data boundary</strong><p>What stays hidden? · open</p></div>
+              <span class="evidence-state">open</span>
+            </li>
+          </ul>
+
+           <details id="lesson-card" class="lesson-card" open data-lesson="auth">
+            <summary>
+              <span class="lesson-badge" aria-hidden="true">✦</span>
+              <span><span class="micro-label">BOB'S LESSON</span><strong>Boundaries make features safer.</strong></span>
+              <span class="summary-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <p>Before adding screens, name the rule behind the screen. A one-line ownership rule gives your future auth code somewhere precise to start.</p>
+            <div class="lesson-actions">
+              <button class="secondary-button" type="button" data-action="save-lesson">Save lesson</button>
+              <button class="text-button" type="button" data-action="start-lesson">Walk me through it <span aria-hidden="true">→</span></button>
+            </div>
+           </details>
+
+           <div id="evidence-note" class="evidence-note">
+            <span class="note-icon" aria-hidden="true">i</span>
+            <p>Evidence is a signal, not a security guarantee. Bob never marks code verified without a check.</p>
+           </div>
+        </aside>
+
+        <section id="mentor-composer" class="panel mentor-composer" aria-labelledby="mentor-title" data-region="mentor-composer" data-controller="mentor-composer">
+          <div class="mentor-avatar" aria-hidden="true">
+            <span class="avatar-core"></span>
+            <span class="avatar-orbit avatar-orbit--one"></span>
+            <span class="avatar-orbit avatar-orbit--two"></span>
+          </div>
+          <div class="mentor-prompt">
+            <p class="eyebrow eyebrow--orange">MENTOR CHECK-IN</p>
+            <h2 id="mentor-title">What should we make certain before you code?</h2>
+            <p class="mentor-subtitle">Ask for a next step, a plain-language explanation, or a sharper question.</p>
+          </div>
+           <form id="mentor-form" class="mentor-form" method="post" action="#mentor-composer" data-action="submit-mentor">
+            <label class="sr-only" for="mentor-input">Ask Bob a question</label>
+            <textarea id="mentor-input" name="mentor-input" rows="2" maxlength="600" placeholder="e.g. What is the simplest listing-owner rule for our demo?" data-field="mentor-message"></textarea>
+             <div class="mentor-form-footer">
+              <div id="mentor-suggestions" class="prompt-chips" aria-label="Suggested prompts">
+                <button class="prompt-chip" type="button" data-action="use-prompt" data-prompt="Explain this boundary simply">Explain this boundary</button>
+                <button class="prompt-chip" type="button" data-action="use-prompt" data-prompt="What is the smallest next step?">Smallest next step</button>
+                <button class="prompt-chip" type="button" data-action="use-prompt" data-prompt="What should I verify?">What should I verify?</button>
+              </div>
+              <button id="mentor-submit" class="send-button" type="submit" data-action="send-mentor">
+                <span>Send to Bob</span>
+                <span class="send-arrow" aria-hidden="true">↗</span>
+              </button>
+            </div>
+            <label class="cloud-consent-toggle" for="cloud-consent">
+              <input id="cloud-consent" type="checkbox">
+              <span>Allow optional cloud mentor responses through this local Bob server.</span>
+            </label>
+            <p id="cloud-status" class="cloud-status">Cloud off · local deterministic teaching is active.</p>
+           </form>
+           <div id="chat-log" class="chat-log" aria-live="polite" aria-label="Bob mentor conversation"></div>
+           <p id="mentor-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></p>
+        </section>
+      </div>
+
+      <div id="toast-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    </div>
+    <script src="./core.js" defer></script>
+    <script src="./project.js" defer></script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
