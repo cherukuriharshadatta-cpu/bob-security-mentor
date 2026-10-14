@@ -1,0 +1,22 @@
+# Local secrets and runtime state
+.env
+.env.*
+!**/.env.example
+*.local
+
+# Dependencies and generated output
+node_modules/
+.opencode/
+.omnirush/
+dist/
+build/
+coverage/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Local exports and scratch files
+downloads/
+tmp/

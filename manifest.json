@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Bob — Local AI Mentor",
+  "version": "0.4.5",
+  "description": "A read-only project mentor notebook with optional Nemotron cloud guidance for an approved ChatGPT conversation.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/core.js",
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/styles.css"],
+      "matches": ["https://chatgpt.com/*"]
+    }
+  ]
+}
