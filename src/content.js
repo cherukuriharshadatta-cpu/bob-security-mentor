@@ -29,7 +29,8 @@
     capturePending: null, captureAgain: false, view: "dashboard",
     backendUrl: DEFAULT_BACKEND, configError: "", settingsTesting: false,
     settingsStatus: "", mentor: null, ownMentorWrites: new Set(),
-    mentorController: null, questionDraft: "", questionAnswer: "", questionBusy: false
+    mentorController: null, questionDraft: "", questionAnswer: "", questionBusy: false,
+    renderedMemory: null, renderedMentorHistory: ""
   };
   var queue = Promise.resolve();
   var fields = {};
@@ -665,7 +666,13 @@
     if (checkUrl() || !state.mentor) return;
     state.mentor.draft = ui.mentorInput.value;
     state.mentor.orb = state.mentor.busy ? "thinking" : "listening";
-    renderMentor();
+    // Do not rebuild the mentor transcript or dashboard on every keystroke.
+    // ChatGPT can also be streaming at the same time, so a full render here
+    // makes the composer feel laggy and can move the caret.
+    ui.orb.className = "bob-orb is-" + (state.mentor.orb || "idle");
+    ui.orb.setAttribute("aria-label", orbLabel(state.mentor.orb));
+    ui.mentorSend.disabled = state.mentor.busy || !String(state.mentor.draft || "").trim() || !state.active || !permitted(state.permission)
+      || (state.mentor.mode === "cloud" && !cloudCaptureValid());
   });
   ui.mentorInput.addEventListener("focus", function () { if (state.mentor && !state.mentor.busy) { state.mentor.orb = "listening"; renderMentor(); } });
   ui.mentorInput.addEventListener("blur", function () { if (state.mentor && !state.mentor.busy && state.mentor.orb === "listening") { state.mentor.orb = "idle"; renderMentor(); } persistMentor(); });
@@ -1148,7 +1155,10 @@
       : "Local rules mode: no conversation context leaves this browser.");
     ui.mentorError.textContent = mentor.error || "";
     show(ui.mentorError, !!mentor.error);
-    ui.mentorInput.value = mentor.draft || "";
+    // Assigning textarea.value on every capture resets the caret in some
+    // browsers. Only sync it when the model value actually differs.
+    var draft = mentor.draft || "";
+    if (ui.mentorInput.value !== draft) ui.mentorInput.value = draft;
     ui.mentorInput.disabled = mentor.busy;
     ui.mentorSend.disabled = mentor.busy || !String(mentor.draft || "").trim() || !state.active || !permitted(state.permission)
       || (mentor.mode === "cloud" && !cloudCaptureValid());
@@ -1160,7 +1170,13 @@
     ui.cloudDestination.textContent = state.backendUrl
       ? "Configured destination: " + state.backendUrl + "/v1/mentor/respond"
       : "No valid backend is configured. Cloud requests are disabled.";
-    renderMentorHistory();
+    var historyFingerprint = (mentor.messages || []).map(function (message) {
+      return (message && message.role || "") + ":" + (message && message.content || "");
+    }).join("\u0001");
+    if (state.renderedMentorHistory !== historyFingerprint) {
+      renderMentorHistory();
+      state.renderedMentorHistory = historyFingerprint;
+    }
     ui.unread.hidden = !mentor.unread;
     ui.mentor.classList.toggle("is-busy", mentor.busy);
   }
@@ -1170,6 +1186,12 @@
     if (state.mentor && view === "mentor") state.mentor.unread = false;
     render();
     if (view === "mentor" && ui.mentorInput && !ui.mentorInput.disabled) ui.mentorInput.focus();
+  }
+  function captureMutationRelevant(record) {
+    var target = record && record.target;
+    if (!target || target === host || (host.contains && host.contains(target))) return false;
+    if (target.closest && target.closest('textarea, input, select, button, form, [contenteditable="true"], nav, aside, [role="navigation"], [role="complementary"], #sidebar, [data-testid*="sidebar"]')) return false;
+    return true;
   }
   function chooseMentorMode(mode) {
     if (!state.mentor) return;
@@ -1528,10 +1550,13 @@
     ui.ask.disabled = !hasMemory || state.questionBusy || !String(state.questionDraft || "").trim();
     ui.questionAnswer.textContent = state.questionAnswer;
     show(ui.questionAnswer, !!state.questionAnswer);
-    if (hasMemory) {
+    if (hasMemory && state.renderedMemory !== state.memory) {
       renderIntentLedger(state.memory);
       renderBrief(state.memory);
       renderSecurity(state.memory);
+      state.renderedMemory = state.memory;
+    } else if (!hasMemory) {
+      state.renderedMemory = null;
     }
     // Never reconstruct the form during captures, external updates, or pause.
     syncFields();
@@ -1571,6 +1596,7 @@
     state.memory = null;
     state.permission = null;
     state.mentor = newMentorState();
+    state.renderedMentorHistory = "";
     state.view = "dashboard";
     state.dirty.clear();
     Object.keys(fields).forEach(function (key) { fields[key].value = ""; });
@@ -1608,6 +1634,7 @@
       state.permission = record.permission;
       state.memory = record.permission && !record.permission.granted ? null : record.memory;
       state.mentor = loaded.mentor;
+      state.renderedMentorHistory = "";
       if (!permitted(record.permission)) state.mentor.cloudConsent = false;
       state.loading = false;
       state.error = environmentError();
@@ -1651,10 +1678,10 @@
       state.lastFingerprint = "";
       state.warning = "Waiting for settled conversation content. Only rendered message text can be captured.";
       state.settledAt = Math.max(state.settledAt, Date.now() + 800);
-      state.observer = new MutationObserver(function (records) {
-        if (checkUrl() || !state.active) return;
-        if (records.some(function (record) { return record.target !== host && !host.contains(record.target); })) scheduleCapture();
-      });
+       state.observer = new MutationObserver(function (records) {
+         if (checkUrl() || !state.active) return;
+         if (records.some(captureMutationRelevant)) scheduleCapture();
+       });
       state.observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
       render();
       scheduleCapture();

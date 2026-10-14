@@ -75,6 +75,7 @@ function tab(shared = backend(), id = "A") {
   const main = append(doc.body, "main");
   append(main, "div", { "data-message-author-role": "user" }, "Goal: Build a timer");
   append(main, "div", { "data-message-author-role": "assistant" }, "Start with a small screen.");
+  const composer = append(main, "div", { contenteditable: "true" }, "Ask ChatGPT");
   let clock = 0, timerId = 0, reads = 0;
   const timers = new Map(), observers = [], events = {};
   const fetchCalls = [];
@@ -117,9 +118,9 @@ function tab(shared = backend(), id = "A") {
   const checkbox = all(shadow).find(node => node.tagName === "INPUT");
   const field = key => all(shadow).find(node => node.tagName === "TEXTAREA" && node.name === key);
   const text = () => shadow.textContent;
-  function mutate() { observers.filter(o => o.connected).forEach(o => o.fn([{ target: main }])); }
+  function mutate(target = main) { observers.filter(o => o.connected).forEach(o => o.fn([{ target }])); }
   return {
-    shared, context, shadow, main, find, field, checkbox, text,
+    shared, context, shadow, main, composer, find, field, checkbox, text,
     get reads() { return reads; },
     get fetchCalls() { return fetchCalls; },
     get activeObservers() { return observers.filter(o => o.connected).length; },
@@ -190,6 +191,15 @@ await test("continuous streaming is throttled, identical snapshots deduplicate, 
   t.mutate(); await t.tick(1000);
   assert.equal(t.shared.db[memKey("A")].bobRevision, revision);
   assert.equal(t.field("projectName").value, "My unsaved project");
+});
+
+await test("typing in the ChatGPT composer does not schedule Bob captures", async () => {
+  const t = tab(); await t.allow(); await t.tick(3000);
+  const before = t.reads;
+  t.composer.textContent = "A user is typing a new prompt";
+  t.mutate(t.composer);
+  await t.tick(1200);
+  assert.equal(t.reads, before, "composer mutations must not trigger DOM extraction");
 });
 
 await test("navigation stops capture and stale DOM cannot be assigned to a new key", async () => {
