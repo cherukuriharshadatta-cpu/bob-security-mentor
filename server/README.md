@@ -105,6 +105,19 @@ The standalone workspace can use the versioned analysis route without changing t
 }
 ```
 
+### `POST /v1/agent/guide` (local deterministic Bob core)
+
+The standalone workspace uses this same-origin route when Cloud AI is off. It
+normalizes the bounded workspace context and runs the provider-neutral Bob
+guidance core without sending the context to OpenRouter. The response is
+`bob-guidance-core.v1` and includes evidence roles, project understanding,
+requirement changes/conflicts, planning options, next action, security review,
+and human verification states. All guidance is marked `untrusted: true`.
+
+This route is the local bridge between the workspace UI and Bob's universal
+reasoning layer; the generic and Chatbase adapters reuse the same core before
+their optional Nemotron call.
+
 The response is the exact object the standalone UI should consume. Every model-derived object and suggestion is explicitly marked `untrusted: true`; these are review-only suggestions and never proof of tests, security, deployment, readiness, correctness, or completion:
 
 ```json
@@ -163,9 +176,17 @@ Run the dependency-free tests from the repository root:
 node server/test.mjs
 node server/agent-analysis-test.mjs
 node server/workspace-persistence-test.mjs
+node server/codebase-adapter-test.mjs
 ```
 
 The proxy test suite checks health, allowed and rejected CORS origins, validation boundaries, best-effort redaction, a successful structured response through a mocked `fetch`, structured-output fallback, and a mocked provider failure. The persistence suite checks local workspace save/load/export/delete behavior and path safety. These tests do not use a real OpenRouter key and do not claim a live OpenRouter test.
+
+The read-only codebase adapter contract is documented in
+`server/codebase-adapter.md`. It validates declared capabilities, explicit
+permission flags, scoped paths, bounded time/output/results, protected-file
+rules, and provenance/status evidence receipts. It does not execute commands
+or read files unless a separately supplied `safe-codebase-runner.v1` boundary
+opts in and returns a validated receipt.
 
 ## Limitations
 

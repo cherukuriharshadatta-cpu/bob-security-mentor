@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { buildBobGuidance, normalizeUniversalContext, toAgentAnalysisOutput } from "./bob-guidance-core.mjs";
 
 export const GENERIC_MENTOR_PATH = "/v1/integrations/mentor";
 export const GENERIC_MENTOR_MAX_RESPONSE_BYTES = 64 * 1024;
@@ -116,6 +117,20 @@ export function normalizeGenericMentorRequest(input) {
   if (Buffer.byteLength(JSON.stringify(workspaceContext), "utf8") > MAX_CONTEXT_BYTES) {
     return { ok: false, code: "invalid_request", message: "Invalid request." };
   }
+  const coreContext = normalizeUniversalContext({
+    source,
+    conversationId,
+    scope,
+    messages,
+    project,
+    userMessage: input.userMessage,
+    capabilities
+  });
+  if (!coreContext.ok) {
+    return { ok: false, code: "invalid_request", message: "Invalid request." };
+  }
+  const deterministic = buildBobGuidance(coreContext.value);
+  const deterministicGuidance = deterministic.ok ? toAgentAnalysisOutput(deterministic.value) : null;
   return {
     ok: true,
     value: {
@@ -125,7 +140,11 @@ export function normalizeGenericMentorRequest(input) {
       capabilities,
       cloudConsent: true,
       workspaceContext,
-      userQuestion: input.userMessage
+      userQuestion: input.userMessage,
+      // Internal preprocessing/fallback data. The HTTP response contract does
+      // not expose this field; it is still marked untrusted when sent to the
+      // provider or used as a local fallback.
+      deterministicGuidance
     }
   };
 }

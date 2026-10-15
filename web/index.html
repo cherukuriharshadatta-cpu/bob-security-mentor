@@ -350,6 +350,19 @@
              <textarea id="brief-input" rows="3" maxlength="1800" placeholder="Goal: Build ...&#10;Feature: ...&#10;Constraint: ..."></textarea>
              <button class="primary-button" type="button" data-action="submit-brief">Record user brief</button>
            </section>
+           <section class="capability-strip" aria-label="Bob capability boundary">
+             <div>
+               <p class="micro-label">CAPABILITY BOUNDARY</p>
+               <strong>Conversation-first · read-only by default</strong>
+             </div>
+             <div class="capability-tags" aria-label="Current capabilities">
+               <span class="capability-tag capability-tag--on">Intent mapping</span>
+               <span class="capability-tag capability-tag--on">Security review</span>
+               <span class="capability-tag">Files off</span>
+               <span class="capability-tag">Commands off</span>
+               <span class="capability-tag">Writes off</span>
+             </div>
+           </section>
            <section id="agent-review" class="agent-review" aria-labelledby="agent-review-title" hidden>
              <div class="agent-review-heading">
                <div>
@@ -360,6 +373,18 @@
              </div>
              <p id="agent-review-reply" class="agent-review-reply"></p>
              <div class="agent-review-grid">
+               <div>
+                 <p class="micro-label">WHAT BOB UNDERSTANDS</p>
+                 <ul id="agent-review-understanding" class="agent-review-list"></ul>
+               </div>
+               <div>
+                 <p class="micro-label">OPTIONS TO CONSIDER</p>
+                 <ul id="agent-review-options" class="agent-review-list"></ul>
+               </div>
+               <div>
+                 <p class="micro-label">SECURITY REVIEW</p>
+                 <ul id="agent-review-security" class="agent-review-list"></ul>
+               </div>
                <div>
                  <p class="micro-label">INTENT SUGGESTIONS</p>
                  <ul id="agent-review-intent" class="agent-review-list"></ul>

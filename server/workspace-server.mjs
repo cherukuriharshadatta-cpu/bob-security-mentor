@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_HOST,
   AGENT_ANALYSIS_PATH,
+  LOCAL_GUIDANCE_PATH,
   HEALTH_PATH,
   MAX_REQUEST_BYTES,
   MENTOR_PATH,
@@ -14,6 +15,7 @@ import {
   GENERIC_MENTOR_PATH,
   getConfig,
   handleAgentAnalysis,
+  handleLocalGuidance,
   handleChatbaseMentor,
   handleGenericMentor,
   handleMentor
@@ -482,7 +484,7 @@ async function routeRequest(req, res, config, fetchImpl) {
     return;
   }
 
-  if ([MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(pathname)) {
+  if ([MENTOR_PATH, AGENT_ANALYSIS_PATH, LOCAL_GUIDANCE_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(pathname)) {
     if (req.method === "OPTIONS") {
       res.writeHead(204, { Allow: "POST, OPTIONS" });
       res.end();
@@ -495,8 +497,9 @@ async function routeRequest(req, res, config, fetchImpl) {
     }
     const handler = pathname === AGENT_ANALYSIS_PATH
       ? handleAgentAnalysis
-      : pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor
-        : pathname === GENERIC_MENTOR_PATH ? handleGenericMentor : handleMentor;
+      : pathname === LOCAL_GUIDANCE_PATH ? handleLocalGuidance
+        : pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor
+          : pathname === GENERIC_MENTOR_PATH ? handleGenericMentor : handleMentor;
     await handler(req, res, null, config, fetchImpl);
     return;
   }

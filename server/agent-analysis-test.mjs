@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   AGENT_ANALYSIS_CONTRACT_VERSION,
   AGENT_ANALYSIS_PATH,
+  LOCAL_GUIDANCE_PATH,
   CHATBASE_MENTOR_PATH,
   DEFAULT_MODEL,
   GENERIC_MENTOR_PATH,
@@ -92,6 +93,14 @@ async function post(base, body) {
 
 async function postWorkspace(base, body) {
   return fetch(`${base}${AGENT_ANALYSIS_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", Origin: base },
+    body: JSON.stringify(body)
+  });
+}
+
+async function postWorkspaceLocalGuidance(base, body) {
+  return fetch(`${base}${LOCAL_GUIDANCE_PATH}`, {
     method: "POST",
     headers: { "content-type": "application/json", Origin: base },
     body: JSON.stringify(body)
@@ -458,6 +467,25 @@ await check("agent output validation requires explicit untrusted markers and rej
       const response = await postWorkspace(base, validRequest());
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), output);
+    });
+    await check("workspace listener exposes deterministic local guidance", async () => {
+      const response = await postWorkspaceLocalGuidance(base, {
+        workspaceContext: {
+          source: "workspace",
+          conversationId: "login-demo",
+          scope: "demo",
+          project: validRequest().workspaceContext.project,
+          messages: validRequest().workspaceContext.messages,
+          capabilities: ["conversation-context"],
+          checks: validRequest().workspaceContext.checks
+        },
+        userQuestion: "What should I clarify before coding?"
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.contractVersion, "bob-guidance-core.v1");
+      assert.equal(body.untrusted, true);
+      assert.ok(body.nextAction && body.securityReview);
     });
     await check("workspace listener exposes the Chatbase adapter route", async () => {
       const response = await postWorkspaceChatbase(base, chatbaseRequest());

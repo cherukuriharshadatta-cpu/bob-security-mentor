@@ -31,7 +31,7 @@
   <main class="shell">
     <div class="eyebrow">Embeddable integration demo</div>
     <h1>A tiny host chatbot with Bob on the side.</h1>
-    <p class="intro">This page is a host simulation. The floating Bob launcher is powered by the dependency-free widget script and a local mock <code>requestGuidance(payload)</code> function. No network credentials are needed.</p>
+    <p class="intro">This page is a host simulation. The floating Bob launcher is powered by the dependency-free widget script and the local deterministic Bob guidance core. No provider credentials are exposed to the browser.</p>
 
     <section class="chat" aria-label="Demo host chatbot">
       <div class="chat__head">
@@ -74,50 +74,32 @@
         log.scrollTop = log.scrollHeight;
       }
 
-      function mockRequestGuidance(payload) {
-        return new Promise(function (resolve) {
-          window.setTimeout(function () {
-            resolve({
-              status: "success",
-              data: {
-                contractVersion: "agent-analysis.v1",
-                untrusted: true,
-                reply: "Start by making the task's state explicit. A small, named model will make the next UI decision easier to verify.",
-                nextAction: {
-                  text: "Write down the fields a task needs, then implement one add-task path.",
-                  reason: "A narrow vertical slice keeps the first test observable.",
-                  untrusted: true
-                },
-                lesson: {
-                  title: "Lesson: make state visible",
-                  text: "When a feature has a clear input, state change, and visible result, you can check it without guessing.",
-                  untrusted: true
-                },
-                clarification: {
-                  question: "Should tasks survive a page refresh in the first version?",
-                  reason: "The storage choice changes the smallest safe implementation.",
-                  untrusted: true
-                },
-                verification: {
-                  suggestions: [
-                    "Add a task with an empty title and decide the expected validation.",
-                    "Refresh after adding a task and record what actually happens."
-                  ],
-                  limitations: ["The mock host did not inspect code or run tests."],
-                  untrusted: true
-                },
-                receivedQuestion: payload.userMessage
-              }
-            });
-          }, 450);
-        });
-      }
+       function requestGuidance(payload) {
+         return fetch("/v1/agent/guide", {
+           method: "POST",
+           headers: { "Content-Type": "application/json", "Accept": "application/json" },
+           body: JSON.stringify({
+             userQuestion: payload.userMessage,
+             workspaceContext: {
+               source: payload.source,
+               conversationId: payload.conversationId,
+               scope: payload.scope || "unspecified",
+               project: payload.project,
+               messages: payload.messages,
+               capabilities: payload.capabilities
+             }
+           })
+         }).then(function (response) {
+           if (!response.ok) throw new Error("Bob core request failed (HTTP " + response.status + ")");
+           return response.json();
+         });
+       }
 
       var bob = window.BobAgentWidget.create({
         source: "demo-host-chatbot",
         conversationId: "demo-projectpal-conversation",
         context: context,
-        requestGuidance: mockRequestGuidance
+         requestGuidance: requestGuidance
       });
 
       addBubble("assistant", "Hi! I can help you sketch the next task-tracker step. Bob can review our context in the floating panel.");

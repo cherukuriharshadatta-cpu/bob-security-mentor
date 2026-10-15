@@ -8,6 +8,7 @@ import {
   normalizeGenericMentorRequest,
   sharedSecretMatches
 } from "./bob-mentor-adapter.mjs";
+import { buildBobGuidance, normalizeUniversalContext } from "./bob-guidance-core.mjs";
 
 export { GENERIC_MENTOR_PATH };
 export { normalizeGenericMentorRequest };
@@ -17,6 +18,7 @@ export const DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const MENTOR_PATH = "/v1/mentor/respond";
 export const AGENT_ANALYSIS_PATH = "/v1/agent/analyze";
+export const LOCAL_GUIDANCE_PATH = "/v1/agent/guide";
 export const CHATBASE_MENTOR_PATH = "/v1/integrations/chatbase/mentor";
 export const AGENT_ANALYSIS_CONTRACT_VERSION = "agent-analysis.v1";
 export const HEALTH_PATH = "/health";
@@ -644,7 +646,8 @@ export function buildAgentAnalysisPayload(input, fallback = false) {
   const safeInput = redactValue(input);
   const referenceData = {
     workspaceContext: safeInput.workspaceContext,
-    userQuestion: safeInput.userQuestion
+    userQuestion: safeInput.userQuestion,
+    ...(safeInput.deterministicGuidance ? { deterministicGuidance: safeInput.deterministicGuidance } : {})
   };
   return {
     model: input.model || DEFAULT_MODEL,
@@ -1184,13 +1187,18 @@ export async function handleGenericMentor(req, res, origin, config, fetchImpl) {
     return;
   }
   if (!config.apiKey) {
-    sendJson(res, 503, publicError("not_configured", "Mentor provider is not configured."), origin);
+    if (validation.value.deterministicGuidance) {
+      sendJson(res, 200, genericMentorResponse(validation.value.deterministicGuidance, validation.value), origin);
+    } else {
+      sendJson(res, 503, publicError("not_configured", "Mentor provider is not configured."), origin);
+    }
     return;
   }
   const agentInput = {
     cloudConsent: true,
     workspaceContext: validation.value.workspaceContext,
-    userQuestion: validation.value.userQuestion
+    userQuestion: validation.value.userQuestion,
+    deterministicGuidance: validation.value.deterministicGuidance
   };
   let providerResult = await callProvider({
     fetchImpl, apiKey: config.apiKey, model: config.model, input: agentInput, fallback: false,
@@ -1203,24 +1211,40 @@ export async function handleGenericMentor(req, res, origin, config, fetchImpl) {
     });
   }
   if (providerResult.kind === "timeout") {
-    sendJson(res, 504, publicError("provider_timeout", "Mentor provider timed out."), origin);
+    if (validation.value.deterministicGuidance) {
+      sendJson(res, 200, genericMentorResponse(validation.value.deterministicGuidance, validation.value), origin);
+    } else {
+      sendJson(res, 504, publicError("provider_timeout", "Mentor provider timed out."), origin);
+    }
     return;
   }
   if (providerResult.kind !== "ok") {
-    sendJson(res, 502, publicError("provider_error", "Mentor provider request failed."), origin);
+    if (validation.value.deterministicGuidance) {
+      sendJson(res, 200, genericMentorResponse(validation.value.deterministicGuidance, validation.value), origin);
+    } else {
+      sendJson(res, 502, publicError("provider_error", "Mentor provider request failed."), origin);
+    }
     return;
   }
   let providerJson;
   try {
     providerJson = JSON.parse(providerResult.text);
   } catch {
-    sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned invalid data."), origin);
+    if (validation.value.deterministicGuidance) {
+      sendJson(res, 200, genericMentorResponse(validation.value.deterministicGuidance, validation.value), origin);
+    } else {
+      sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned invalid data."), origin);
+    }
     return;
   }
   const parsedOutput = parseModelJson(modelContent(providerJson));
   const safeOutput = redactValue(parsedOutput);
   if (!validateAgentAnalysisOutput(safeOutput)) {
-    sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned an unexpected response."), origin);
+    if (validation.value.deterministicGuidance) {
+      sendJson(res, 200, genericMentorResponse(validation.value.deterministicGuidance, validation.value), origin);
+    } else {
+      sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned an unexpected response."), origin);
+    }
     return;
   }
   const response = genericMentorResponse(safeOutput, validation.value);
@@ -1229,6 +1253,54 @@ export async function handleGenericMentor(req, res, origin, config, fetchImpl) {
     return;
   }
   sendJson(res, 200, response, origin);
+}
+
+export async function handleLocalGuidance(req, res, origin) {
+  const type = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+  if (type !== "application/json") {
+    sendJson(res, 415, publicError("unsupported_media_type", "Use application/json."), origin);
+    return;
+  }
+  let bodyText;
+  try {
+    bodyText = await readRequestBody(req);
+  } catch (error) {
+    if (error instanceof BodyLimitError) {
+      req.resume();
+      sendJson(res, 413, publicError("payload_too_large", "Request is too large."), origin);
+      return;
+    }
+    sendJson(res, 400, publicError("invalid_request", "Invalid request."), origin);
+    return;
+  }
+  let input;
+  try {
+    input = JSON.parse(bodyText);
+  } catch {
+    sendJson(res, 400, publicError("invalid_json", "Request must contain valid JSON."), origin);
+    return;
+  }
+  if (!isPlainObject(input) || Object.keys(input).some(key => !["workspaceContext", "userQuestion"].includes(key)) ||
+      !isBoundedString(input.userQuestion, MAX_TEXT_LENGTH, false) || !isPlainObject(input.workspaceContext)) {
+    sendJson(res, 400, publicError("invalid_request", "A bounded workspace context and question are required."), origin);
+    return;
+  }
+  const normalized = normalizeUniversalContext({ ...input.workspaceContext, userMessage: input.userQuestion });
+  if (!normalized.ok) {
+    sendJson(res, 400, publicError("invalid_request", "The workspace context is invalid."), origin);
+    return;
+  }
+  const guidance = buildBobGuidance(normalized.value);
+  if (!guidance.ok) {
+    sendJson(res, 400, publicError("invalid_request", "The workspace context could not be analyzed."), origin);
+    return;
+  }
+  const output = guidance.value;
+  if (Buffer.byteLength(JSON.stringify(output), "utf8") > 64 * 1024) {
+    sendJson(res, 502, publicError("response_too_large", "Local guidance exceeded its response bound."), origin);
+    return;
+  }
+  sendJson(res, 200, output, origin);
 }
 
 export function createServer({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
@@ -1249,7 +1321,7 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
     }
 
     if (req.method === "OPTIONS") {
-        if (![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(parsedUrl.pathname)) {
+       if (![MENTOR_PATH, AGENT_ANALYSIS_PATH, LOCAL_GUIDANCE_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(parsedUrl.pathname)) {
         sendJson(res, 404, publicError("not_found", "Not found."), origin);
         return;
       }
@@ -1264,15 +1336,16 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
       }, origin);
       return;
     }
-    if (req.method !== "POST" || ![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(parsedUrl.pathname)) {
+    if (req.method !== "POST" || ![MENTOR_PATH, AGENT_ANALYSIS_PATH, LOCAL_GUIDANCE_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(parsedUrl.pathname)) {
       sendJson(res, 404, publicError("not_found", "Not found."), origin);
       return;
     }
 
     const handler = parsedUrl.pathname === AGENT_ANALYSIS_PATH
       ? handleAgentAnalysis
-      : parsedUrl.pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor
-        : parsedUrl.pathname === GENERIC_MENTOR_PATH ? handleGenericMentor : handleMentor;
+      : parsedUrl.pathname === LOCAL_GUIDANCE_PATH ? handleLocalGuidance
+        : parsedUrl.pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor
+          : parsedUrl.pathname === GENERIC_MENTOR_PATH ? handleGenericMentor : handleMentor;
     handler(req, res, origin, config, fetchImpl).catch(() => {
       sendJson(res, 500, publicError("internal_error", "The server could not complete the request."), origin);
     });

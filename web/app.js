@@ -621,6 +621,18 @@
         }
       }
       var intent = response.intentUpdate || {};
+      var understanding = response.projectUnderstanding || {};
+      renderReviewList("#agent-review-understanding, [data-agent-review-understanding]", [
+        { text: "Build · " + (understanding.whatIsBeingBuilt || "Not specified") },
+        { text: "Why · " + (understanding.why || "Not specified") },
+        { text: "Users · " + (understanding.targetUsers || "Not specified") }
+      ], function (item) { return "Likely · " + item.text; });
+      renderReviewList("#agent-review-options, [data-agent-review-options]", response.planningOptions || response.recommendations, function (item) {
+        return (item.title || item.label || "Option") + (item.reason ? " · " + item.reason : item.tradeoff ? " · " + item.tradeoff : "");
+      });
+      renderReviewList("#agent-review-security, [data-agent-review-security]", response.securityReview, function (item) {
+        return (item.status || "needs-review") + " · " + (item.recommendedAction || item.reason || item.text || item.area || "Review this boundary.");
+      });
       renderReviewList("#agent-review-intent, [data-agent-review-intent]", agentItems([].concat(intent.current || [], intent.uncertain || [])), function (item) {
         return "Not verified · " + item.text;
       });
@@ -1210,6 +1222,65 @@
     };
   }
 
+  function buildLocalGuidancePayload(question) {
+    if (!state || !state.workspace || !workspaceModel || typeof workspaceModel.toCloudPayload !== "function") return null;
+    var base = workspaceModel.toCloudPayload(state.workspace, question);
+    return {
+      workspaceContext: {
+        source: "workspace",
+        conversationId: state.workspace.id,
+        scope: state.workspace.scope,
+        project: base.project,
+        messages: base.messages,
+        capabilities: ["conversation-context"],
+        checks: state.checks
+      },
+      userQuestion: text(question)
+    };
+  }
+
+  function normalizeGuidanceResponse(body) {
+    if (!body || body.untrusted !== true) throw new Error("invalid_guidance_response");
+    if (body.contractVersion === "agent-analysis.v1") return body;
+    if (body.contractVersion !== "bob-guidance-core.v1") throw new Error("invalid_guidance_contract");
+    var question = body.openQuestions && body.openQuestions[0];
+    return {
+      contractVersion: "agent-analysis.v1",
+      untrusted: true,
+      reply: text(body.reply) || "Bob prepared bounded guidance for the next step.",
+      projectUnderstanding: body.projectUnderstanding,
+      planningOptions: body.planningOptions,
+      securityReview: body.securityReview,
+      intentUpdate: Object.assign({ current: [], replaced: [], uncertain: [] }, body.intent || {}, { untrusted: true }),
+      flowReview: {
+        nodes: (body.securityReview || []).slice(0, 20).map(function (item) {
+          return { id: item.id, status: item.status === "mentioned" ? "likely" : "not-verified", summary: item.reason || item.recommendedAction || "Human review is needed.", untrusted: true };
+        }),
+        untrusted: true
+      },
+      nextAction: body.nextAction || { text: "Write one explicit next step.", reason: "A small step keeps the project reviewable.", untrusted: true },
+      lesson: { title: "A clear boundary makes the next step easier.", text: "Keep user decisions separate from suggestions and verify implementation separately.", untrusted: true },
+      clarification: { question: question ? question.text : "", reason: "This decision remains open in the bounded workspace context.", untrusted: true },
+      verification: body.verification || { suggestions: [], limitations: [], untrusted: true }
+    };
+  }
+
+  function requestLocalGuidance(question) {
+    var payload;
+    try { payload = buildLocalGuidancePayload(question); } catch (error) { payload = null; }
+    if (!payload || !global || typeof global.fetch !== "function") return Promise.reject(new Error("local_guidance_unavailable"));
+    return global.fetch("/v1/agent/guide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    }).then(function (body) {
+      return normalizeGuidanceResponse(body);
+    });
+  }
+
   function applyAgentResponse(body, question) {
     if (!body || body.contractVersion !== "agent-analysis.v1" || body.untrusted !== true || typeof body.reply !== "string") {
       throw new Error("invalid_agent_response");
@@ -1225,6 +1296,21 @@
     addChat("assistant", claim("Not verified", displayReply) + "\n" + claim("Not verified", "Cloud analysis is untrusted review guidance; Bob did not run tests or change code."));
     addTimeline("Not verified", "Untrusted standalone agent analysis received for the user's question: " + question);
     renderAgentResponse();
+    renderAll();
+  }
+
+  function applyLocalGuidance(body, question) {
+    var normalized = normalizeGuidanceResponse(body);
+    state.agent = normalized;
+    state.agentBusy = false;
+    var displayReply = text(normalized.reply) || text(normalized.nextAction && normalized.nextAction.text);
+    if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function" && displayReply) {
+      state.workspace = workspaceModel.appendAssistantMessage(state.workspace, displayReply, { now: new Date().toISOString(), source: "local" });
+      syncModelState();
+      schedulePersistence();
+    }
+    addChat("assistant", claim("Likely", displayReply) + "\n" + claim("Not verified", "Local guidance is bounded and deterministic; Bob did not run tests or change code."));
+    addTimeline("Likely", "Bounded Bob guidance prepared from the workspace context: " + question);
     renderAll();
   }
 
@@ -1271,6 +1357,27 @@
         });
         return true;
       }
+    }
+    if (state.workspace && global && typeof global.fetch === "function") {
+      state.agentBusy = true;
+      setCloudStatus("Local Bob core · mapping intent, planning the next step, and reviewing security…");
+      requestLocalGuidance(input).then(function (body) {
+        applyLocalGuidance(body, input);
+        setCloudStatus("Local Bob core · guidance prepared on this device/server; review before acting.");
+      }).catch(function () {
+        state.agentBusy = false;
+        setCloudStatus("Local Bob core · unavailable; deterministic fallback remains available.");
+        var localReply = workspaceModel && typeof workspaceModel.localReply === "function"
+          ? workspaceModel.localReply(input, state.workspace) : answerFor(input);
+        if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
+          state.workspace = workspaceModel.appendAssistantMessage(state.workspace, localReply, { now: new Date().toISOString(), source: "local" });
+          syncModelState();
+          schedulePersistence();
+        }
+        addChat("assistant", localReply);
+        renderAll();
+      });
+      return true;
     }
     var localReply = workspaceModel && typeof workspaceModel.localReply === "function"
       ? workspaceModel.localReply(input, state.workspace)

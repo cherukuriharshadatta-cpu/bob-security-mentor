@@ -35,6 +35,14 @@ node server/workspace-server.mjs
 
 Open `http://127.0.0.1:4173`. Bob starts with an empty workspace. Add a user brief or import an explicit `User:`/`Assistant:` transcript, then inspect the intent ledger, project flow, lessons, human-run checks, and local deterministic questions. If you enable the optional cloud checkbox, a question is sent only to the same-origin local Bob server; the server may forward the bounded workspace context to OpenRouter when `OPENROUTER_API_KEY` is configured. The workspace displays `providerConfigured` and `model` from `GET /health`; it never receives the API key. Cloud analysis is labelled untrusted guidance and is never merged into confirmed workspace evidence.
 
+With Cloud AI off, the workspace calls `POST /v1/agent/guide` and runs the
+provider-neutral Bob core: evidence classification, intent mapping, change and
+conflict detection, beginner-friendly planning, conservative security review,
+and human verification states. This local guidance is still labelled untrusted;
+it is not a test runner or a security guarantee. The workspace uses a warm,
+Claude-like paper-and-ink theme with motion that can be disabled by reduced-
+motion preferences.
+
 The workspace also has a pure model layer in `web/project.js`: use its brief/transcript import APIs to build a real workspace without scraping ChatGPT. When served by `server/workspace-server.mjs`, canonical workspace state is persisted locally under `.bob/` (or the directory named by `BOB_DATA_DIR`); opening the files directly remains session-local.
 
 ## Add Bob to a Chatbase agent
@@ -150,6 +158,7 @@ node server/test.mjs
 node tests/workspace-model.mjs
 node server/workspace-test.mjs
 node server/workspace-persistence-test.mjs
+node server/codebase-adapter-test.mjs
 node --check src/core.js
 node --check src/content.js
 node --check server/openrouter-proxy.mjs
