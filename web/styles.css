@@ -1250,6 +1250,89 @@ h2 {
   line-height: 1.4;
 }
 
+.workspace-onboarding,
+.agent-review {
+  grid-column: 2 / -1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(139, 209, 173, .26);
+  border-radius: 12px;
+  background: rgba(12, 17, 21, .28);
+}
+
+.workspace-onboarding h3,
+.agent-review h3 {
+  margin: 2px 0 4px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.workspace-onboarding p:not(.micro-label),
+.agent-review-reply,
+.agent-review-limitations {
+  margin: 0 0 8px;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.workspace-onboarding textarea {
+  display: block;
+  width: 100%;
+  min-height: 58px;
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+  color: var(--text);
+  background: rgba(10, 15, 18, .7);
+  font-size: 11px;
+}
+
+.agent-review {
+  border-color: rgba(239, 189, 112, .35);
+  background: rgba(42, 35, 25, .24);
+}
+
+.agent-review-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-review-badge {
+  padding: 3px 6px;
+  border: 1px solid rgba(239, 189, 112, .5);
+  border-radius: 999px;
+  color: var(--gold);
+  font: 700 9px/1 var(--mono);
+  text-transform: uppercase;
+}
+
+.agent-review-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agent-review-list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.agent-review-item,
+.agent-review-empty {
+  margin: 3px 0;
+}
+
+.agent-review-empty,
+.agent-review-limitations {
+  color: var(--muted);
+}
+
 .mentor-form {
   min-width: 0;
 }

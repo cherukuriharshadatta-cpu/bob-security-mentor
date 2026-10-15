@@ -20,8 +20,24 @@ test("creates a real empty workspace without seed claims", () => {
   assert.equal(state.sources.length, 0);
   assert.equal(state.scope, "unspecified");
   assert.equal(state.memory.intentLedger.items.length, 0);
-  assert.equal(model.analyzeWorkspace(state).clarification, null);
+  const analysis = model.analyzeWorkspace(state);
+  assert.equal(analysis.clarification, null);
+  assert.deepEqual(analysis.flow.map((node) => node.id), ["intent", "experience", "inputs", "auth", "data", "verification"]);
+  assert.ok(analysis.flow.every((node) => node.status === "unknown" && node.verified === false));
+  assert.ok(analysis.flow.every((node) => /Not verified/i.test(node.label)));
+  assert.equal(analysis.onboarding.status, "needs-brief");
+  assert.equal(analysis.onboarding.needsBrief, true);
   assert.ok(Object.isFrozen(state));
+});
+
+test("onboarding adds an explicit user brief without using the demo fixture", () => {
+  const empty = model.createWorkspace({ id: "onboarding", now: "t0" });
+  const state = model.addUserBrief(empty, "Goal: Build a private timer.", { now: "t1" });
+  assert.equal(empty.messages.length, 0);
+  assert.deepEqual(state.messages.map((message) => [message.role, message.source]), [["user", "brief"]]);
+  assert.equal(model.onboarding(state).status, "brief-recorded");
+  assert.equal(model.onboarding(state).userBrief, "Goal: Build a private timer.");
+  assert.equal(model.createWorkspace({ id: "fixture", brief: model.DEMO_BRIEF, now: "t0" }).messages.length, 1);
 });
 
 test("briefs and imports preserve explicit roles and source attribution", () => {
@@ -51,6 +67,20 @@ test("assistant text cannot establish intent or project completion", () => {
   assert.equal(state.memory.intentLedger.items[0].text, "Build a toy timer");
   assert.equal(state.memory.project.deploymentReadiness, "");
   assert.ok(!model.exportMarkdown(state).includes("Ship a banking app — source"));
+});
+
+test("assistant-only security topics and user questions do not request scope clarification", () => {
+  let state = model.createWorkspace({ id: "assistant-only", now: "t0" });
+  state = model.appendAssistantMessage(state, "Use login, passwords and private records for the app.", { now: "t1" });
+  let analysis = model.analyzeWorkspace(state);
+  assert.equal(analysis.clarification, null);
+  assert.equal(analysis.intent.current.length, 0);
+  assert.ok(analysis.findings.some((finding) => finding.status === "mentioned"));
+
+  state = model.appendUserMessage(state, "Can you explain login and private records?", { now: "t2" });
+  analysis = model.analyzeWorkspace(state);
+  assert.equal(analysis.clarification, null);
+  assert.equal(analysis.intent.current.length, 0);
 });
 
 test("append and restore are immutable and enforce message and text bounds", () => {

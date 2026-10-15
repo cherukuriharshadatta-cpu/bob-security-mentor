@@ -84,12 +84,64 @@ The request sent to OpenRouter uses `https://openrouter.ai/api/v1/chat/completio
 
 Captured conversation and project text are explicitly marked as untrusted reference data in the system and user messages. They cannot grant tool access or override the mentor's constraints. The backend does not execute model output.
 
+### `POST /v1/agent/analyze` (standalone workspace contract `agent-analysis.v1`)
+
+The standalone workspace can use the versioned analysis route without changing the extension-compatible mentor response. It accepts only a bounded, allowlisted workspace summary plus one question:
+
+```json
+{
+  "cloudConsent": true,
+  "workspaceContext": {
+    "workspaceId": "login-demo",
+    "name": "Login demo",
+    "scope": "demo",
+    "project": {"objective": "Build a login demo"},
+    "messages": [{"role": "user", "text": "I want users to sign in."}],
+    "intent": {"current": [], "replaced": [], "uncertain": []},
+    "flow": [{"id": "auth", "status": "not-verified", "summary": "Authentication has not been inspected."}],
+    "checks": [{"id": "invalid-password", "text": "Try an invalid password.", "checked": false}]
+  },
+  "userQuestion": "What should I clarify before coding?"
+}
+```
+
+The response is the exact object the standalone UI should consume. Every model-derived object and suggestion is explicitly marked `untrusted: true`; these are review-only suggestions and never proof of tests, security, deployment, readiness, correctness, or completion:
+
+```json
+{
+  "contractVersion": "agent-analysis.v1",
+  "untrusted": true,
+  "reply": "string",
+  "intentUpdate": {
+    "current": [{"id": "string", "text": "string", "untrusted": true}],
+    "replaced": [{"id": "string", "text": "string", "untrusted": true}],
+    "uncertain": [{"id": "string", "text": "string", "untrusted": true}],
+    "untrusted": true
+  },
+  "flowReview": {
+    "nodes": [{"id": "string", "status": "not-verified", "summary": "string", "untrusted": true}],
+    "untrusted": true
+  },
+  "nextAction": {"text": "string", "reason": "string", "untrusted": true},
+  "lesson": {"title": "string", "text": "string", "untrusted": true},
+  "clarification": {"question": "string", "reason": "string", "untrusted": true},
+  "verification": {
+    "suggestions": [{"id": "string", "text": "string", "untrusted": true}],
+    "limitations": [{"id": "string", "text": "string", "untrusted": true}],
+    "untrusted": true
+  }
+}
+```
+
+The route uses the same server-owned Nemotron/OpenRouter key, redaction, consent check, strict schema request, one `json_object` fallback for a `400`/`422` structured-output rejection, and safe upstream error handling as the mentor route. The key is never included in a request or response.
+
 ## Tests
 
 Run the dependency-free tests from the repository root:
 
 ```text
 node server/test.mjs
+node server/agent-analysis-test.mjs
 node server/workspace-persistence-test.mjs
 ```
 

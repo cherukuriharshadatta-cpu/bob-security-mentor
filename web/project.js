@@ -19,6 +19,7 @@
   var MAX_TEXT = core.MAX_TURN_LENGTH;
   var MAX_SOURCES = 40;
   var DEMO_BRIEF = "Goal: Build a login app for a hackathon demo.\nFeatures: A sign-in screen with clear success and failure responses.\nConstraint: Use fake accounts and keep this a private demo.";
+  var ONBOARDING_PROMPT = "Tell Bob what you want to build in a short user brief. For example: Goal: Build a timer.";
   var LIMITATIONS = "Deterministic local rules read bounded user/assistant text, not running code. Topic mentions and rule flags are not proof of implementation, exploitability or safety. Bob does not trace runtime behavior, execute tests, verify checklist reports or prove deployment readiness. Only the latest 40 messages (1800 characters each) and up to 40 relevant earlier user sources are retained; this is not a complete transcript.";
   var CHECK_DEFINITIONS = [
     { id: "scope-confirmed", nodeId: "intent", text: "Confirm the demo or production scope and which data and users are involved." },
@@ -127,6 +128,22 @@
       updatedAt: timestamp(at)
     };
   }
+
+  function onboardingFor(state) {
+    var briefs = allSources(state.messages, state.sources).filter(function (message) {
+      return message.role === "user" && message.source === "brief";
+    });
+    var latest = briefs.length ? briefs[briefs.length - 1] : null;
+    return {
+      status: latest ? "brief-recorded" : "needs-brief",
+      needsBrief: !latest,
+      hasUserBrief: !!latest,
+      prompt: ONBOARDING_PROMPT,
+      userBrief: latest ? latest.text : "",
+      source: latest ? sourceRef(latest, state.messages) : null
+    };
+  }
+  function getOnboarding(state) { return freeze(onboardingFor(requireState(state))); }
 
   function build(input, pruned) {
     var messages = sanitizeMessages(input.messages, false);
@@ -259,11 +276,15 @@
     var requestedBrief = own(options, "brief") ? options.brief : options.userBrief;
     var id = validId(options.id) ? options.id : validId(options.workspaceId) ? options.workspaceId : "ws-" + hash(text(requestedName, 120) + "\n" + text(requestedBrief, MAX_TEXT) + "\n" + at);
     var state = build({ id: id, name: text(requestedName, 120), createdAt: at, updatedAt: at, messages: [], sources: [], checks: options.checks });
-    if (text(requestedBrief, MAX_TEXT)) { state = appendUserMessage(state, requestedBrief, { now: at, source: "brief" }); }
+    if (text(requestedBrief, MAX_TEXT)) { state = addUserBrief(state, requestedBrief, { now: at }); }
     if (Array.isArray(options.messages)) { state = importTranscript(state, options.messages, { now: at }); }
     if (typeof options.transcript === "string") { state = importTranscript(state, options.transcript, { now: at }); }
     if (options.scope === "demo" || options.scope === "production") { state = chooseScope(state, options.scope, { now: at }); }
     return state;
+  }
+  function addUserBrief(state, body, options) {
+    options = object(options) ? options : {};
+    return add(state, "user", body, Object.assign({}, options, { source: "brief" }));
   }
   function importTranscript(state, input, options) {
     var safe = requireState(state);
@@ -344,10 +365,17 @@
       needsRepeat: checks.filter(function (item) { return item.status === "needs-repeat"; }).length,
       verified: 0
     };
-    var securityRelevant = findings.some(function (item) {
-      return item.status !== "unknown" && /^(?:identity|input-output|data|secrets|web-session|privacy|abuse)$/.test(item.category);
-    }) || allSources(safe.messages, safe.sources).some(function (message) {
-      return message.role === "user" && /\b(?:accounts?|passwords?|credentials?|private data|personal data|record ownership|sign[ -]?in|log[ -]?in)\b/i.test(message.text);
+    // A topic mention is useful local evidence, but it is not user intent.
+    // Scope clarification must not be triggered by assistant teaching,
+    // assistant-only imports, or a user asking a question about security.
+    var securityRelevant = allSources(safe.messages, safe.sources).some(function (message) {
+      if (message.role !== "user" || /\?/.test(message.text)) { return false; }
+      if (/\b(?:maybe|might|could|perhaps|possibly|not sure|uncertain|undecided)\b/i.test(message.text)) { return false; }
+      var securityTopic = /\b(?:accounts?|passwords?|credentials?|private data|personal data|record ownership|sign[ -]?in|log[ -]?in|authentication|authorization|permissions?|sessions?|cookies?|secrets?|api[ -]?keys?|database|queries?|privacy|personal data)\b/i.test(message.text);
+      var intentSignal = /^(?:goal|objective|requirement|feature|constraint|decision|scope)\s*:/im.test(message.text) ||
+        /\b(?:build|create|make|develop|want|need|plan|intend|use|support|keep|remain|deploy|ship|add|store|protect|must|should|will|allow|require)\b/i.test(message.text) ||
+        /\b(?:no|without|skip(?:ping)?|disable[sd]?|avoid)\b[\s\S]{0,40}\b(?:accounts?|passwords?|credentials?|private data|personal data|record ownership|sign[ -]?in|log[ -]?in|authentication|authorization|permissions?|sessions?|cookies?|secrets?|api[ -]?keys?|database|queries?|privacy)\b/i.test(message.text);
+      return securityTopic && intentSignal;
     });
     var clarification = safe.scope === "unspecified" && securityRelevant ? {
       id: "scope", question: "Is this a private demo with fake accounts/data, or a production app for real users?",
@@ -366,7 +394,7 @@
       };
     }
     var intent = {
-      id: "intent", title: "Project intent", status: goal ? "observed" : "unknown", label: goal ? "User-stated intent" : "Not specified",
+      id: "intent", title: "Project intent", status: goal ? "observed" : "unknown", label: goal ? "User-stated intent" : "Not verified",
       summary: goal ? goal.text : "Add a brief with an explicit goal, such as Goal: Build a timer.",
       evidence: goal ? "Explicit user goal; interpretation uses deterministic rules." : "No explicit user goal was detected.",
       sources: goal ? [goal.source] : [], ruleIds: [], verified: false
@@ -375,7 +403,7 @@
     var experienceFields = ["features", "requirements", "designPreferences"].filter(function (field) { return !!safe.memory.project[field]; });
     var experience = {
       id: "experience", title: "User experience", status: experienceItems.length || experienceFields.length ? "observed" : "unknown",
-      label: experienceItems.length || experienceFields.length ? "User-stated requirements" : "Not specified",
+      label: experienceItems.length || experienceFields.length ? "User-stated requirements" : "Not verified",
       summary: experienceItems.length ? experienceItems.map(function (item) { return item.text; }).join("; ") : experienceFields.length ? safe.memory.project[experienceFields[0]] : "Describe what someone should be able to do and the success and failure states.",
       evidence: "A conceptual feature flow, not a runtime trace.",
       sources: experienceItems.map(function (item) { return item.source; }).concat(experienceFields.map(function (field) { return safe.projectSources[field]; }).filter(Boolean)).slice(0, MAX_SOURCES),
@@ -399,6 +427,7 @@
       intent: { current: current, replaced: ledger.items.filter(function (item) { return item.status === "replaced"; }), uncertain: ledger.items.filter(function (item) { return item.status === "uncertain"; }), currentGoal: intent.summary },
       flow: flow, edges: flow.slice(1).map(function (item, index) { return { from: flow[index].id, to: item.id, label: "Conceptual relationship" }; }),
       findings: findings, findingCounts: summary.counts, summary: summary, clarification: clarification,
+      onboarding: onboardingFor(safe),
       checks: checks, checkCounts: checkCounts, limitations: LIMITATIONS
     });
   }
@@ -547,8 +576,10 @@
 
   return freeze({
     SCHEMA_VERSION: VERSION, MAX_MESSAGES: MAX_MESSAGES, MAX_TEXT_LENGTH: MAX_TEXT, MAX_SOURCES: MAX_SOURCES,
+    ONBOARDING_PROMPT: ONBOARDING_PROMPT,
     DEMO_BRIEF: DEMO_BRIEF, CHECK_DEFINITIONS: CHECK_DEFINITIONS,
-    createWorkspace: createWorkspace, appendUserMessage: appendUserMessage, appendAssistantMessage: appendAssistantMessage,
+    createWorkspace: createWorkspace, addUserBrief: addUserBrief, onboarding: getOnboarding, getOnboarding: getOnboarding,
+    appendUserMessage: appendUserMessage, appendAssistantMessage: appendAssistantMessage,
     chooseScope: chooseScope, recordCheck: recordCheck, importTranscript: importTranscript,
     analyzeWorkspace: analyzeWorkspace, lessonFor: lessonFor, localReply: localReply,
     toCloudPayload: toCloudPayload, exportMarkdown: exportMarkdown, restoreWorkspace: restoreWorkspace

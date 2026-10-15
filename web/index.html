@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#10161b">
-    <meta name="description" content="Bob Agent hackathon workspace for turning project intent into verified next steps.">
+    <meta name="description" content="Bob Agent workspace for turning user-provided project intent into grounded next steps.">
     <title>Bob / Agent workspace</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
@@ -20,9 +20,9 @@
 
         <div class="project-context" aria-label="Active project">
           <span class="context-label">ACTIVE PROJECT</span>
-           <strong data-project-name="Login demo">Login demo</strong>
+           <strong data-project-name="New workspace">New workspace</strong>
           <span class="context-separator" aria-hidden="true">·</span>
-          <span class="context-mode">hackathon build</span>
+           <span class="context-mode">awaiting brief</span>
         </div>
 
         <div class="topbar-actions">
@@ -63,79 +63,20 @@
               <span class="micro-label">CURRENT FOCUS</span>
               <span id="intent-confidence" class="confidence-badge" data-confidence="82">82%</span>
             </div>
-            <p id="ledger-focus-copy">Make trust visible while helping students find what they need.</p>
+             <p id="ledger-focus-copy">No user intent has been recorded yet.</p>
             <div class="confidence-meter" aria-label="Intent confidence: 82 percent">
               <span data-confidence-fill></span>
             </div>
-            <p class="source-note"><span class="source-glyph" aria-hidden="true">↳</span> from your brief · just now</p>
+             <p class="source-note"><span class="source-glyph" aria-hidden="true">↳</span> waiting for user evidence</p>
           </div>
 
           <div class="ledger-section-heading">
             <span class="micro-label">CAPTURED THREAD</span>
             <span class="ledger-count" id="intent-count">06</span>
           </div>
-          <ol id="intent-list" class="ledger-list" aria-label="Captured project intent">
-            <li class="ledger-entry is-current" data-intent-id="intent-trust" data-state="current">
-              <button class="ledger-entry-button" type="button" aria-pressed="true" data-action="select-intent">
-                <span class="entry-marker" aria-hidden="true"><span></span></span>
-                <span class="entry-copy">
-                  <strong>Trust should be visible</strong>
-                  <small>product principle · confirmed</small>
-                </span>
-                <span class="entry-chevron" aria-hidden="true">↗</span>
-              </button>
-            </li>
-            <li class="ledger-entry" data-intent-id="intent-audience" data-state="confirmed">
-              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
-                <span class="entry-marker entry-marker--mint" aria-hidden="true"><span></span></span>
-                <span class="entry-copy">
-                  <strong>Students are the first users</strong>
-                  <small>audience · observed</small>
-                </span>
-                <span class="entry-chevron" aria-hidden="true">↗</span>
-              </button>
-            </li>
-            <li class="ledger-entry" data-intent-id="intent-scope" data-state="confirmed">
-              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
-                <span class="entry-marker entry-marker--mint" aria-hidden="true"><span></span></span>
-                <span class="entry-copy">
-                  <strong>Demo before production</strong>
-                  <small>scope · observed</small>
-                </span>
-                <span class="entry-chevron" aria-hidden="true">↗</span>
-              </button>
-            </li>
-            <li class="ledger-entry" data-intent-id="intent-stack" data-state="mentioned">
-              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
-                <span class="entry-marker entry-marker--gold" aria-hidden="true"><span></span></span>
-                <span class="entry-copy">
-                  <strong>Web app, JavaScript</strong>
-                  <small>stack · mentioned</small>
-                </span>
-                <span class="entry-chevron" aria-hidden="true">↗</span>
-              </button>
-            </li>
-            <li class="ledger-entry" data-intent-id="intent-access" data-state="uncertain">
-              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
-                <span class="entry-marker entry-marker--muted" aria-hidden="true"><span></span></span>
-                <span class="entry-copy">
-                  <strong>Who can post a listing?</strong>
-                  <small>access model · needs clarity</small>
-                </span>
-                <span class="entry-chevron" aria-hidden="true">↗</span>
-              </button>
-            </li>
-            <li class="ledger-entry" data-intent-id="intent-data" data-state="uncertain">
-              <button class="ledger-entry-button" type="button" aria-pressed="false" data-action="select-intent">
-                <span class="entry-marker entry-marker--muted" aria-hidden="true"><span></span></span>
-                <span class="entry-copy">
-                  <strong>What data must stay private?</strong>
-                  <small>data boundary · open</small>
-                </span>
-                <span class="entry-chevron" aria-hidden="true">↗</span>
-              </button>
-            </li>
-          </ol>
+           <ol id="intent-list" class="ledger-list" aria-label="Captured project intent">
+             <li class="agent-claim-empty">No explicit user intent has been captured.</li>
+           </ol>
 
           <div class="ledger-footer">
             <span class="footer-glyph" aria-hidden="true">⌁</span>
@@ -172,8 +113,8 @@
 
             <div id="flow-map" class="flow-map" data-controller="flow-map">
               <svg class="flow-svg" viewBox="0 0 960 430" role="img" aria-labelledby="flow-map-title flow-map-description" preserveAspectRatio="xMidYMid meet">
-                <title id="flow-map-title">CampusCart evidence map</title>
-                <desc id="flow-map-description">A connected path from product intent through experience, inputs, authentication, data, and verification. Authentication and verification need review.</desc>
+                 <title id="flow-map-title">Workspace evidence map</title>
+                 <desc id="flow-map-description">A connected path from user intent through experience, inputs, authentication, data, and verification.</desc>
                 <defs>
                   <pattern id="map-grid" width="32" height="32" patternUnits="userSpaceOnUse">
                     <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#233139" stroke-width="1" opacity=".56"></path>
@@ -272,12 +213,12 @@
 
             <div id="flow-detail" class="flow-detail" data-flow-detail="auth" data-state="needs-review">
               <span class="detail-mark" aria-hidden="true">!</span>
-              <p><strong>Auth boundary needs a decision.</strong> Who can create a listing, and what happens when a session expires?</p>
+               <p><strong>Security boundaries need evidence.</strong> Add a brief or transcript to identify the next human decision.</p>
               <button class="text-button" type="button" data-action="open-lesson" data-target="auth">Explore lesson <span aria-hidden="true">→</span></button>
             </div>
             <aside id="clarification-prompt" class="clarification-prompt" data-clarification="deployment" role="note" aria-live="polite">
               <p class="micro-label">ONE HIGH-VALUE QUESTION</p>
-              <p class="clarification-copy">Not verified · Is this a private hackathon demo or something you plan to expose publicly?</p>
+               <p class="clarification-copy">Not verified · A clarification will appear when user evidence makes one necessary.</p>
               <div class="clarification-actions">
                 <button class="secondary-button" type="button" data-clarify-choice="demo">Keep it as a demo</button>
                 <button class="primary-button" type="button" data-clarify-choice="public">Plan public deployment</button>
@@ -323,7 +264,7 @@
             <ol id="agent-timeline" class="agent-timeline" aria-label="Bob agent activity timeline"></ol>
             <div id="verification-strip" class="verification-strip" data-state="needs-review">
               <span class="verification-spark" aria-hidden="true">✦</span>
-              <span><strong>Next smallest step:</strong> define the listing-owner rule in one sentence.</span>
+               <span><strong>Next smallest step:</strong> <span data-next-action>add one user-stated goal or import a transcript.</span></span>
               <button class="text-button" type="button" data-action="focus-mentor">Ask Bob <span aria-hidden="true">↗</span></button>
             </div>
           </section>
@@ -345,7 +286,7 @@
             <div>
               <span class="micro-label">READINESS SIGNAL</span>
               <strong id="evidence-score-label">Early but coherent</strong>
-              <p>Most of the shape is visible. Two boundaries need your call.</p>
+               <p>The workspace starts empty. Add evidence before treating any boundary as settled.</p>
             </div>
           </div>
 
@@ -354,35 +295,30 @@
             <button class="text-button text-button--small" type="button" data-action="show-all-evidence">View all</button>
           </div>
           <ul id="evidence-list" class="evidence-list" aria-label="Evidence signals">
-            <li class="evidence-item" data-evidence-id="audience" data-state="verified">
-              <span class="evidence-icon evidence-icon--mint" aria-hidden="true">✓</span>
-              <div><strong>Audience is named</strong><p>Students · observed in brief</p></div>
-              <span class="evidence-state">clear</span>
-            </li>
-            <li class="evidence-item" data-evidence-id="scope" data-state="verified">
-              <span class="evidence-icon evidence-icon--mint" aria-hidden="true">✓</span>
-              <div><strong>Demo scope is explicit</strong><p>Hackathon build · confirmed</p></div>
-              <span class="evidence-state">clear</span>
-            </li>
-            <li class="evidence-item" data-evidence-id="auth" data-state="needs-review">
+             <li class="evidence-item" data-evidence-id="brief" data-state="needs-review">
+               <span class="evidence-icon evidence-icon--orange" aria-hidden="true">!</span>
+               <div><strong>User brief is missing</strong><p>Add a goal, feature or constraint · open</p></div>
+               <span class="evidence-state">open</span>
+             </li>
+             <li class="evidence-item" data-evidence-id="auth" data-state="needs-review">
               <span class="evidence-icon evidence-icon--orange" aria-hidden="true">!</span>
-              <div><strong>Listing ownership</strong><p>Role boundary · not decided</p></div>
+               <div><strong>Security boundary</strong><p>Implementation · not verified</p></div>
               <span class="evidence-state">open</span>
             </li>
             <li class="evidence-item" data-evidence-id="privacy" data-state="needs-review">
               <span class="evidence-icon evidence-icon--orange" aria-hidden="true">!</span>
-              <div><strong>Private data boundary</strong><p>What stays hidden? · open</p></div>
+               <div><strong>Private data boundary</strong><p>What stays hidden? · open</p></div>
               <span class="evidence-state">open</span>
             </li>
           </ul>
 
-           <details id="lesson-card" class="lesson-card" open data-lesson="auth">
+            <details id="lesson-panel" class="lesson-card" open data-lesson="auth">
             <summary>
               <span class="lesson-badge" aria-hidden="true">✦</span>
-              <span><span class="micro-label">BOB'S LESSON</span><strong>Boundaries make features safer.</strong></span>
+               <span><span class="micro-label">BOB'S LESSON</span><strong>Start with a user-stated boundary.</strong></span>
               <span class="summary-chevron" aria-hidden="true">⌄</span>
             </summary>
-            <p>Before adding screens, name the rule behind the screen. A one-line ownership rule gives your future auth code somewhere precise to start.</p>
+             <p>Add a user brief or transcript first. Bob's lessons are guidance and do not prove that code is secure or complete.</p>
             <div class="lesson-actions">
               <button class="secondary-button" type="button" data-action="save-lesson">Save lesson</button>
               <button class="text-button" type="button" data-action="start-lesson">Walk me through it <span aria-hidden="true">→</span></button>
@@ -396,19 +332,52 @@
         </aside>
 
         <section id="mentor-composer" class="panel mentor-composer" aria-labelledby="mentor-title" data-region="mentor-composer" data-controller="mentor-composer">
-          <div class="mentor-avatar" aria-hidden="true">
+           <div class="mentor-avatar" aria-hidden="true">
             <span class="avatar-core"></span>
             <span class="avatar-orbit avatar-orbit--one"></span>
             <span class="avatar-orbit avatar-orbit--two"></span>
           </div>
-          <div class="mentor-prompt">
-            <p class="eyebrow eyebrow--orange">MENTOR CHECK-IN</p>
-            <h2 id="mentor-title">What should we make certain before you code?</h2>
-            <p class="mentor-subtitle">Ask for a next step, a plain-language explanation, or a sharper question.</p>
-          </div>
-           <form id="mentor-form" class="mentor-form" method="post" action="#mentor-composer" data-action="submit-mentor">
+           <div class="mentor-prompt">
+             <p class="eyebrow eyebrow--orange">MENTOR CHECK-IN</p>
+             <h2 id="mentor-title">What should we make certain before you code?</h2>
+             <p class="mentor-subtitle">Ask for a next step, a plain-language explanation, or a sharper question.</p>
+           </div>
+           <section class="workspace-onboarding" aria-labelledby="onboarding-title">
+             <p class="micro-label">START THIS WORKSPACE</p>
+             <h3 id="onboarding-title">Give Bob the project in your own words.</h3>
+             <p>Only user-provided text becomes project evidence. Assistant suggestions remain labelled as untrusted guidance.</p>
+             <label class="sr-only" for="brief-input">Project brief</label>
+             <textarea id="brief-input" rows="3" maxlength="1800" placeholder="Goal: Build ...&#10;Feature: ...&#10;Constraint: ..."></textarea>
+             <button class="primary-button" type="button" data-action="submit-brief">Record user brief</button>
+           </section>
+           <section id="agent-review" class="agent-review" aria-labelledby="agent-review-title" hidden>
+             <div class="agent-review-heading">
+               <div>
+                 <p class="micro-label">CLOUD AGENT / REVIEW ONLY</p>
+                 <h3 id="agent-review-title">Untrusted analysis</h3>
+               </div>
+               <span class="agent-review-badge">untrusted</span>
+             </div>
+             <p id="agent-review-reply" class="agent-review-reply"></p>
+             <div class="agent-review-grid">
+               <div>
+                 <p class="micro-label">INTENT SUGGESTIONS</p>
+                 <ul id="agent-review-intent" class="agent-review-list"></ul>
+               </div>
+               <div>
+                 <p class="micro-label">FLOW REVIEW</p>
+                 <ul id="agent-review-flow" class="agent-review-list"></ul>
+               </div>
+               <div>
+                 <p class="micro-label">HUMAN CHECKS</p>
+                 <ul id="agent-review-checks" class="agent-review-list"></ul>
+               </div>
+             </div>
+             <p id="agent-review-limitations" class="agent-review-limitations"></p>
+           </section>
+            <form id="mentor-form" class="mentor-form" method="post" action="#mentor-composer" data-action="submit-mentor">
             <label class="sr-only" for="mentor-input">Ask Bob a question</label>
-            <textarea id="mentor-input" name="mentor-input" rows="2" maxlength="600" placeholder="e.g. What is the simplest listing-owner rule for our demo?" data-field="mentor-message"></textarea>
+             <textarea id="mentor-input" name="mentor-input" rows="2" maxlength="600" placeholder="e.g. What is the smallest next security step?" data-field="mentor-message"></textarea>
              <div class="mentor-form-footer">
               <div id="mentor-suggestions" class="prompt-chips" aria-label="Suggested prompts">
                 <button class="prompt-chip" type="button" data-action="use-prompt" data-prompt="Explain this boundary simply">Explain this boundary</button>

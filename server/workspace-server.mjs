@@ -6,10 +6,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_HOST,
+  AGENT_ANALYSIS_PATH,
   HEALTH_PATH,
   MAX_REQUEST_BYTES,
   MENTOR_PATH,
   getConfig,
+  handleAgentAnalysis,
   handleMentor
 } from "./openrouter-proxy.mjs";
 
@@ -468,7 +470,7 @@ async function routeRequest(req, res, config, fetchImpl) {
     return;
   }
 
-  if (pathname === MENTOR_PATH) {
+  if (pathname === MENTOR_PATH || pathname === AGENT_ANALYSIS_PATH) {
     if (req.method === "OPTIONS") {
       res.writeHead(204, { Allow: "POST, OPTIONS" });
       res.end();
@@ -479,7 +481,8 @@ async function routeRequest(req, res, config, fetchImpl) {
       sendError(req, res, 405, "method_not_allowed", "Use POST.");
       return;
     }
-    await handleMentor(req, res, null, config, fetchImpl);
+    const handler = pathname === AGENT_ANALYSIS_PATH ? handleAgentAnalysis : handleMentor;
+    await handler(req, res, null, config, fetchImpl);
     return;
   }
 

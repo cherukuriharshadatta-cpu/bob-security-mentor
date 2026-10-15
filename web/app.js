@@ -2,7 +2,7 @@
   "use strict";
 
   /*
-   * Bob Agent hackathon demo
+   * Bob Agent standalone workspace
    *
    * This file intentionally has no dependencies. Persistence uses only the
    * same-origin workspace routes when they are available. The page may provide
@@ -22,6 +22,7 @@
   var persistenceEpoch = 0;
   var loadingPromise = null;
   var deleting = false;
+  var agentRequestId = 0;
   var PERSISTENCE_DEBOUNCE = 350;
 
   var SELECTORS = {
@@ -46,47 +47,29 @@
   };
 
   var STAGES = [
-    { id: "observe", label: "Observed", title: "Reading the seeded login-app brief", progress: 14 },
-    { id: "interpret", label: "Likely", title: "Mapping the login flow and inputs", progress: 32 },
-    { id: "clarify", label: "Not verified", title: "One deployment-scope decision is needed", progress: 50 },
-    { id: "security", label: "Not verified", title: "Reviewing the security boundary", progress: 70 },
-    { id: "verify", label: "Not verified", title: "Preparing checks Bob cannot run", progress: 88 },
-    { id: "ready", label: "Not verified", title: "Flow ready for a human review", progress: 100 }
+    { id: "observe", label: "Observed", title: "Reading the workspace evidence", progress: 14 },
+    { id: "interpret", label: "Likely", title: "Mapping intent and project boundaries", progress: 32 },
+    { id: "clarify", label: "Not verified", title: "Checking for a high-value uncertainty", progress: 50 },
+    { id: "security", label: "Not verified", title: "Reviewing the security flow", progress: 70 },
+    { id: "verify", label: "Not verified", title: "Preparing human-run checks", progress: 88 },
+    { id: "ready", label: "Not verified", title: "Analysis ready for your review", progress: 100 }
   ];
 
-  var SEED = {
-    current: [
-      { id: "project", claim: "Observed", text: "Build a login app for a hackathon demo." },
-      { id: "feature", claim: "Observed", text: "Include a sign-in screen and a clear success or failure response." },
-      { id: "boundary", claim: "Likely", text: "Treat the login form as an input and authentication boundary." }
-    ],
-    replaced: [
-      { id: "initial-scope", claim: "Observed · Replaced", text: "Public deployment was the unconfirmed default scope." }
-    ],
-    uncertain: [
-      { id: "deployment-scope", claim: "Not verified", text: "Choose between a private demo and a public deployment plan." },
-      { id: "credential-store", claim: "Not verified", text: "No real account store or password handling has been checked." }
-    ]
-  };
-
   var FLOW_SEED = {
-    intent: { claim: "Observed", text: "The brief names a login app for a hackathon demo." },
-    feature: { claim: "Observed", text: "A sign-in screen and response states are in the seeded brief." },
-    inputs: { claim: "Likely", text: "Email and password fields are likely inputs." },
-    auth: { claim: "Not verified", text: "Authentication behavior has not been run or inspected." },
-    data: { claim: "Not verified", text: "Credential storage and account data are not verified." },
-    secrets: { claim: "Not verified", text: "No secret-handling implementation is verified by this demo." },
-    deployment: { claim: "Not verified", text: "The deployment target is awaiting one user choice." },
+    intent: { claim: "Not verified", text: "Add a user brief or import a transcript to create the first evidence node." },
+    feature: { claim: "Not verified", text: "Describe what a user should be able to do." },
+    inputs: { claim: "Not verified", text: "Input boundaries are unknown until the project is described." },
+    auth: { claim: "Not verified", text: "Authentication and ownership boundaries are unknown." },
+    data: { claim: "Not verified", text: "Data and secret handling are unknown." },
+    secrets: { claim: "Not verified", text: "No secret-handling evidence has been captured." },
+    deployment: { claim: "Not verified", text: "Choose a scope only when it is part of the user's intent." },
     security: { claim: "Not verified", text: "Security controls need evidence from a human-run check." },
     verification: { claim: "Not verified", text: "Bob does not run tests or prove readiness." }
   };
 
-  var CHECK_SEED = [
-    { id: "invalid-password", text: "Try an invalid password and check the response does not reveal account details." },
-    { id: "secret-boundary", text: "Confirm demo credentials are not committed or embedded as real secrets." },
-    { id: "session-boundary", text: "Confirm the session boundary and logout behavior match the chosen scope." },
-    { id: "deployment-choice", text: "Record whether this remains a private demo or needs a public deployment review." }
-  ];
+  var CHECK_SEED = workspaceModel && Array.isArray(workspaceModel.CHECK_DEFINITIONS)
+    ? workspaceModel.CHECK_DEFINITIONS.map(function (item) { return { id: item.id, text: item.text }; })
+    : [];
 
   function cloneItems(items) {
     return (items || []).map(function (item) {
@@ -104,16 +87,16 @@
 
   function newState() {
     var workspace = workspaceModel && typeof workspaceModel.createWorkspace === "function"
-      ? workspaceModel.createWorkspace({ id: "login-demo", name: "Login security demo", brief: workspaceModel.DEMO_BRIEF, now: new Date().toISOString() })
+      ? workspaceModel.createWorkspace({ id: "workspace", name: "New workspace", now: new Date().toISOString() })
       : null;
     var next = {
       runId: 0,
       stageIndex: -1,
       choice: null,
       intents: {
-        current: cloneItems(SEED.current),
-        replaced: cloneItems(SEED.replaced),
-        uncertain: cloneItems(SEED.uncertain)
+        current: [],
+        replaced: [],
+        uncertain: []
       },
       flow: cloneFlow(),
       checks: CHECK_SEED.map(function (item) {
@@ -127,7 +110,10 @@
       cloudConsent: false,
       providerConfigured: null,
       providerModel: "",
-      paused: false
+      paused: false,
+      agent: null,
+      agentBusy: false,
+      onboarding: false
     };
     syncModelState(next);
     return next;
@@ -424,13 +410,16 @@
     var prompt = panel.querySelector ? panel.querySelector("[data-clarification-copy], .clarification-copy") : null;
     if (!prompt) prompt = panel;
     var choices = all(["[data-clarify-choice]", "[data-clarification-choice]", "[data-action=choose-demo]", "[data-action=choose-public]", "[data-action=clarify-demo]", "[data-action=clarify-public]", "#choose-demo", "#choose-public", "#clarify-demo", "#clarify-public", ".clarify-demo", ".clarify-public"]);
-    if (!state.choice) {
+    var modelClarification = state.agent && state.agent.clarification && text(state.agent.clarification.question)
+      ? state.agent.clarification : state.analysis && state.analysis.clarification;
+    if (!state.choice && modelClarification) {
       setVisible(panel, true);
+      var question = modelClarification.question || "One project decision needs your input.";
       if (prompt === panel && panel.children && panel.children.length === 0) {
-        var copy = makeElement("p", "clarification-copy", "Not verified · The deployment scope needs one choice before Bob teaches the next step.");
+        var copy = makeElement("p", "clarification-copy", "Not verified · " + question);
         if (copy) panel.appendChild(copy);
       } else if (prompt !== panel) {
-        setText(prompt, "Not verified · The deployment scope needs one choice before Bob teaches the next step.");
+        setText(prompt, "Not verified · " + question);
       }
       if (!choices.length && panel.appendChild) {
         ["demo", "public"].forEach(function (choice) {
@@ -450,6 +439,10 @@
           setData(button, "choice-state", "available");
         }
       });
+      return;
+    }
+    if (!state.choice && !modelClarification) {
+      setVisible(panel, false);
       return;
     }
     setVisible(panel, false);
@@ -570,14 +563,7 @@
     if (container.scrollHeight !== undefined) container.scrollTop = container.scrollHeight;
   }
 
-  function seedChat() {
-    state.chat = [{
-      role: "assistant",
-      text: claim("Observed", "Seeded login-app brief loaded locally.") + "\n" +
-        claim("Likely", "Start with a private demo boundary.") + "\n" +
-        claim("Not verified", "No app code, test, or deployment has been run by Bob.")
-    }];
-  }
+  function seedChat() { state.chat = []; }
 
   function renderAgent() {
     if (!state) return;
@@ -602,9 +588,73 @@
           progress.setAttribute("data-progress", String(stage.progress));
         }
       }
+    } else {
+      var emptyStatus = claim("Not verified", "Waiting for a user brief or transcript.");
+      setText(status, emptyStatus);
+      setText(stageNode, emptyStatus);
+      setText(labelNode, emptyStatus);
+      setData(status, "claim", "not-verified");
+      setData(stageNode, "claim", "not-verified");
     }
     renderFlow();
     renderClarification();
+  }
+
+  function renderAgentResponse() {
+    if (!state || !state.agent) return;
+    var response = state.agent;
+    var review = first("#agent-review, [data-agent-review]");
+    if (review) {
+      var replyNode = first("#agent-review-reply, [data-agent-review-reply]");
+      setText(replyNode, response.reply);
+      function renderReviewList(selector, items, formatter) {
+        var list = first(selector);
+        if (!list) return;
+        clearNode(list);
+        (items || []).slice(0, 20).forEach(function (item) {
+          var row = makeElement("li", "agent-review-item", formatter(item));
+          if (row) list.appendChild(row);
+        });
+        if (!items || !items.length) {
+          var empty = makeElement("li", "agent-review-empty", "No suggestion returned.");
+          if (empty) list.appendChild(empty);
+        }
+      }
+      var intent = response.intentUpdate || {};
+      renderReviewList("#agent-review-intent, [data-agent-review-intent]", agentItems([].concat(intent.current || [], intent.uncertain || [])), function (item) {
+        return "Not verified · " + item.text;
+      });
+      renderReviewList("#agent-review-flow, [data-agent-review-flow]", response.flowReview && response.flowReview.nodes, function (item) {
+        return "" + (item.status || "not-verified") + " · " + item.summary;
+      });
+      var verification = response.verification || {};
+      renderReviewList("#agent-review-checks, [data-agent-review-checks]", verification.suggestions, function (item) {
+        return "Not verified · " + item.text;
+      });
+      var limitations = (verification.limitations || []).map(function (item) { return item.text; }).filter(Boolean);
+      setText(first("#agent-review-limitations, [data-agent-review-limitations]"), limitations.length
+        ? "Limitations · " + limitations.join(" ")
+        : "Limitations · Bob did not run tests, inspect code, change files or prove readiness.");
+      setVisible(review, true);
+    }
+    var lesson = response.lesson;
+    var panel = first(SELECTORS.lesson);
+    if (panel && lesson) {
+      clearNode(panel);
+      var heading = makeElement("h3", "lesson-title", text(lesson.title) || "Review lesson");
+      var body = makeElement("p", "lesson-copy", claim("Not verified", lesson.text));
+      if (heading) panel.appendChild(heading);
+      if (body) panel.appendChild(body);
+      setVisible(panel, true);
+      setData(panel, "lesson-source", "untrusted-agent");
+    }
+    var next = response.nextAction && response.nextAction.text;
+    var strip = first("#verification-strip, [data-verification-strip]");
+    var stripCopy = strip && strip.querySelector ? strip.querySelector("strong") : null;
+    if (stripCopy && next) setText(stripCopy, "Next suggested step:");
+    var stripText = strip && strip.querySelector ? strip.querySelector("[data-next-action]") : null;
+    if (stripText && next) setText(stripText, " " + next);
+    setData(first(SELECTORS.chatLog), "agent-contract", response.contractVersion || "agent-analysis.v1");
   }
 
   function timelineStage(stage) {
@@ -702,7 +752,7 @@
   }
 
   function workspaceRoute(id, suffix) {
-    var safeId = encodeURIComponent(String(id || "login-demo"));
+    var safeId = encodeURIComponent(String(id || "workspace"));
     return "/api/workspaces/" + safeId + (suffix || "");
   }
 
@@ -788,17 +838,17 @@
 
   function loadWorkspace() {
     if (!state || !state.workspace || !global || typeof global.fetch !== "function") {
-      setPersistenceStatus("Offline", "Workspace server unavailable; using the local demo model.");
+      setPersistenceStatus("Offline", "Workspace server unavailable; using the local workspace model.");
       return;
     }
     var revision = persistenceRevision;
     var epoch = persistenceEpoch;
     loadingPromise = Promise.resolve().then(function () {
-      return global.fetch(workspaceRoute("login-demo"), { headers: { "Accept": "application/json" } });
+      return global.fetch(workspaceRoute(state.workspace.id), { headers: { "Accept": "application/json" } });
     }).then(function (response) {
       if (response && response.status === 404) {
         if (revision === persistenceRevision && epoch === persistenceEpoch && !deleting) {
-          setPersistenceStatus("Offline", "No saved workspace was found; the local demo model is active.");
+          setPersistenceStatus("Offline", "No saved workspace was found; the workspace is ready for your brief.");
         }
         return null;
       }
@@ -813,9 +863,10 @@
       syncModelState();
       renderAll();
       setPersistenceStatus("Saved", "Canonical workspace restored from the local workspace server.");
+      startAnalysisRun();
     }).catch(function () {
       if (revision === persistenceRevision && epoch === persistenceEpoch && !deleting) {
-        setPersistenceStatus("Offline", "Workspace could not be loaded; using the local demo model.");
+        setPersistenceStatus("Offline", "Workspace could not be loaded; using the local workspace model.");
       }
     }).then(function () {
       loadingPromise = null;
@@ -857,8 +908,7 @@
     seedChat();
     renderAll();
     addTimeline("Observed", "A fresh local workspace is ready after deletion.");
-    setPersistenceStatus("Offline", "The saved workspace was deleted; a fresh local demo is active.");
-    animateRun(state.runId);
+    setPersistenceStatus("Offline", "The saved workspace was deleted; a fresh workspace is ready for your brief.");
   }
 
   function deleteWorkspace() {
@@ -904,15 +954,23 @@
     runTimer = schedule(function () { animateRun(runId); }, delay());
   }
 
+  function startAnalysisRun() {
+    if (!state || !state.workspace || !Array.isArray(state.workspace.messages) || !state.workspace.messages.length) return;
+    cancelTimer();
+    state.runId += 1;
+    state.stageIndex = -1;
+    animateRun(state.runId);
+  }
+
   function replay() {
     cancelTimer();
     state = newState();
     state.runId += 1;
     seedChat();
     renderAll();
-    addTimeline("Observed", "Replay started from the seeded login-app brief.");
+    addTimeline("Observed", "Replay started from the current workspace evidence.");
     schedulePersistence();
-    animateRun(state.runId);
+    startAnalysisRun();
   }
 
   function updateFlowForChoice(choice) {
@@ -958,17 +1016,17 @@
   function lessonText(key) {
     if (key === "deployment") {
       return [
-        claim("Observed", "The scope choice changes the security boundary."),
+        claim("Observed", "The user-selected scope changes the security boundary."),
         claim("Likely", "A public service needs stronger authentication, data, secret, and abuse-control review than a local demo."),
         claim("Not verified", "This demo has not inspected code or confirmed a deployable service."),
         claim("Not verified", "Check the chosen boundary before treating the flow as ready.")
       ].join("\n");
     }
     return [
-      claim("Observed", "The seeded brief includes a login flow."),
-      claim("Likely", "The login form is an input boundary and the session is an authentication boundary."),
-      claim("Not verified", "Bob has not run the app or inspected its authentication code."),
-      claim("Not verified", "Try a wrong-password case and confirm the response does not reveal account details.")
+      claim("Observed", "The workspace contains user-provided security or project evidence."),
+      claim("Likely", "Inputs, permissions, data and verification boundaries should be named explicitly."),
+      claim("Not verified", "Bob has not run the app or inspected its implementation."),
+      claim("Not verified", "Choose one small human-run check that matches the stated goal.")
     ].join("\n");
   }
 
@@ -1053,6 +1111,7 @@
         if (action === "export-workspace") { if (event && event.preventDefault) event.preventDefault(); exportWorkspace(); return; }
         if (action === "delete-workspace") { if (event && event.preventDefault) event.preventDefault(); deleteWorkspace(); return; }
         if (action === "import-transcript") { if (event && event.preventDefault) event.preventDefault(); importTranscript(); return; }
+        if (action === "submit-brief") { if (event && event.preventDefault) event.preventDefault(); submitBrief(); return; }
       });
     });
   }
@@ -1085,30 +1144,87 @@
     }
     if (/security|password|secret|auth|login|session/.test(lower)) {
       return [
-        claim("Observed", "The demo has a login boundary and password-like input."),
-        claim("Likely", "Use fake credentials, avoid exposing secrets, and test an invalid-password response."),
+        claim("Observed", "The question mentions a security boundary or sensitive input."),
+        claim("Likely", "Name the owner, data boundary and failure behavior before implementation."),
         claim("Not verified", "The implementation and error behavior have not been inspected or run.")
       ].join("\n");
     }
     if (/test|verify|check|ready/.test(lower)) {
       return [
         claim("Observed", "The verification checklist is available."),
-        claim("Likely", "Start with invalid-password behavior and the secret boundary."),
+        claim("Likely", "Start with the smallest check tied to the user's stated scope."),
         claim("Not verified", "Checking a box records your review action; it is not a test result from Bob.")
       ].join("\n");
     }
     if (/demo|hackathon|scope/.test(lower)) {
       return [
-        claim("Observed", "The seeded project is a login-app hackathon demo."),
-        claim("Likely", "A private demo is the smallest teachable boundary."),
-        claim("Not verified", "Choose the scope above before treating deployment work as settled.")
+        claim("Observed", "The question asks about project scope."),
+        claim("Likely", "A clearly stated scope makes security trade-offs easier to review."),
+        claim("Not verified", "The workspace has no scope decision until the user states one.")
       ].join("\n");
     }
     return [
-      claim("Observed", "Bob received your question in the local demo."),
-      claim("Likely", "Take one small, testable step around the login boundary."),
+      claim("Observed", "Bob received your question in the local workspace."),
+      claim("Likely", "Take one small, testable step around the relevant project boundary."),
       claim("Not verified", "This deterministic answer is guidance, not evidence that the app works.")
     ].join("\n");
+  }
+
+  function agentStatus(value) {
+    var normalized = text(value).toLowerCase();
+    return normalized === "observed" ? "observed" : normalized === "likely" ? "likely" : "not-verified";
+  }
+
+  function agentItems(items) {
+    return Array.isArray(items) ? items.map(function (item) {
+      return { id: text(item && item.id), text: text(item && item.text) };
+    }).filter(function (item) { return item.id && item.text; }).slice(0, 20) : [];
+  }
+
+  function buildAgentPayload(question) {
+    if (!state || !state.workspace || !workspaceModel || typeof workspaceModel.toCloudPayload !== "function") return null;
+    var base = workspaceModel.toCloudPayload(state.workspace, question);
+    var analysis = state.analysis || {};
+    var flow = Array.isArray(analysis.flow) ? analysis.flow : [];
+    return {
+      cloudConsent: true,
+      workspaceContext: {
+        workspaceId: state.workspace.id,
+        name: state.workspace.name,
+        scope: state.workspace.scope,
+        project: base.project,
+        messages: base.messages,
+        intent: {
+          current: agentItems(state.intents.current),
+          replaced: agentItems(state.intents.replaced),
+          uncertain: agentItems(state.intents.uncertain)
+        },
+        flow: flow.map(function (node) {
+          return { id: node.id, status: agentStatus(node.status), summary: text(node.summary) };
+        }).filter(function (node) { return node.id && node.summary; }),
+        checks: state.checks.map(function (check) {
+          return { id: check.id, text: text(check.text), checked: !!check.checked };
+        })
+      },
+      userQuestion: text(question)
+    };
+  }
+
+  function applyAgentResponse(body, question) {
+    if (!body || body.contractVersion !== "agent-analysis.v1" || body.untrusted !== true || typeof body.reply !== "string") {
+      throw new Error("invalid_agent_response");
+    }
+    state.agent = body;
+    state.agentBusy = false;
+    if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
+      state.workspace = workspaceModel.appendAssistantMessage(state.workspace, body.reply, { now: new Date().toISOString(), source: "cloud" });
+      syncModelState();
+      schedulePersistence();
+    }
+    addChat("assistant", claim("Not verified", body.reply) + "\n" + claim("Not verified", "Cloud analysis is untrusted review guidance; Bob did not run tests or change code."));
+    addTimeline("Not verified", "Untrusted standalone agent analysis received for the user's question: " + question);
+    renderAgentResponse();
+    renderAll();
   }
 
   function addChat(role, message) {
@@ -1129,10 +1245,12 @@
     addTimeline("Observed", "The user asked Bob a local deterministic mentor question.");
     if (state.cloudConsent && state.workspace && workspaceModel && typeof workspaceModel.toCloudPayload === "function") {
       var payload;
-      try { payload = workspaceModel.toCloudPayload(state.workspace, input); } catch (error) { payload = null; }
+      try { payload = buildAgentPayload(input); } catch (error) { payload = null; }
       if (payload) {
-        setCloudStatus("Cloud on · asking the configured Bob server…");
-        fetch("/v1/mentor/respond", {
+        state.agentBusy = true;
+        var requestId = ++agentRequestId;
+        setCloudStatus("Cloud on · asking the configured Bob agent…");
+        fetch("/v1/agent/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Accept": "application/json" },
           body: JSON.stringify(payload)
@@ -1140,25 +1258,22 @@
           if (!response.ok) throw new Error("HTTP " + response.status);
           return response.json();
         }).then(function (body) {
-          var reply = text(body && body.reply) || "The cloud mentor returned no readable reply.";
-          if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
-            state.workspace = workspaceModel.appendAssistantMessage(state.workspace, reply, { now: new Date().toISOString(), source: "cloud" });
-            syncModelState();
-            schedulePersistence();
-          }
-          addChat("assistant", claim("Likely", reply) + "\n" + claim("Not verified", "Cloud output is a review-only suggestion; Bob did not run tests or change code."));
-          addTimeline("Likely", "Cloud mentor response received; review-only and not independently verified.");
-          setCloudStatus("Cloud on · response received; review it before acting.");
-          renderAll();
+          if (requestId !== agentRequestId) return;
+          applyAgentResponse(body, input);
+          setCloudStatus("Cloud on · untrusted analysis received; review it before acting.");
         }).catch(function (error) {
-          setCloudStatus("Cloud on · request failed (" + (error && error.message ? error.message : "server unavailable") + "). No local fallback was hidden.");
-          addChat("assistant", claim("Not verified", "The optional cloud mentor was unavailable. Nothing was changed; switch cloud off to use local deterministic teaching."));
+          if (requestId !== agentRequestId) return;
+          state.agentBusy = false;
+          setCloudStatus("Cloud on · request failed (" + (error && error.message ? error.message : "server unavailable") + "). Local teaching remains available.");
+          addChat("assistant", claim("Not verified", "The optional cloud agent was unavailable. Nothing was changed; local deterministic teaching remains available."));
           renderAll();
         });
         return true;
       }
     }
-    var localReply = answerFor(input);
+    var localReply = workspaceModel && typeof workspaceModel.localReply === "function"
+      ? workspaceModel.localReply(input, state.workspace)
+      : answerFor(input);
     if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
       state.workspace = workspaceModel.appendAssistantMessage(state.workspace, localReply, { now: new Date().toISOString(), source: "local" });
       syncModelState();
@@ -1191,7 +1306,29 @@
     if (input && "value" in input) input.value = "";
     addTimeline("Observed", "A transcript was imported with explicit user and assistant roles.");
     schedulePersistence();
+    startAnalysisRun();
     toast("Transcript imported; saving workspace.");
+    return true;
+  }
+
+  function submitBrief() {
+    var input = first("#brief-input, [data-brief-input]");
+    var brief = input && "value" in input ? input.value : "";
+    if (!text(brief)) {
+      toast("Add a short Goal, feature or constraint first.");
+      if (input && input.focus) input.focus();
+      return false;
+    }
+    if (!state || !state.workspace || !workspaceModel || typeof workspaceModel.addUserBrief !== "function") return false;
+    state.workspace = workspaceModel.addUserBrief(state.workspace, brief, { now: new Date().toISOString() });
+    state.chat = chatFromWorkspace(state.workspace);
+    syncModelState();
+    renderAll();
+    addTimeline("Observed", "The user brief was recorded as project evidence.");
+    schedulePersistence();
+    startAnalysisRun();
+    if (input && "value" in input) input.value = "";
+    toast("Brief recorded; Bob is ready to review it.");
     return true;
   }
 
@@ -1299,12 +1436,13 @@
 
   function renderAll() {
     syncModelState();
-    var projectName = state.workspace && state.workspace.name ? state.workspace.name : "Login demo";
+    var projectName = state.workspace && state.workspace.name ? state.workspace.name : "New workspace";
     all("[data-project-name]").forEach(function (node) { setText(node, projectName); });
     var cloudConsent = first("#cloud-consent, [data-cloud-consent]");
     if (cloudConsent) cloudConsent.checked = !!state.cloudConsent;
     renderIntents();
     renderAgent();
+    renderAgentResponse();
     renderChecklist();
     renderTimeline();
     renderChat();
@@ -1346,11 +1484,10 @@
     state = newState();
     seedChat();
     renderAll();
-    setPersistenceStatus("Saved", "Local demo workspace is ready.");
-    addTimeline("Observed", "Seeded login-app demo loaded; workspace persistence status is shown above.");
+    setPersistenceStatus("Saved", "Workspace is ready for a user brief or transcript.");
+    addTimeline("Not verified", "Workspace is empty; waiting for user-provided project evidence.");
     loadWorkspace();
     loadProviderHealth();
-    animateRun(state.runId);
     return global.BobAgentDemo;
   }
 
@@ -1362,6 +1499,7 @@
     showLesson: showLesson,
     ask: ask,
     importTranscript: importTranscript,
+    submitBrief: submitBrief,
     exportWorkspace: exportWorkspace,
     deleteWorkspace: deleteWorkspace,
     getState: getState,

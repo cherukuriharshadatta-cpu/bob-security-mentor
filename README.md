@@ -31,7 +31,7 @@ $env:OPENROUTER_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 node server/workspace-server.mjs
 ```
 
-Open `http://127.0.0.1:4173`. Bob starts with a bounded login-app demo, then lets you choose private demo versus public deployment, inspect the intent ledger, open the authentication lesson, mark human-run checks, and ask local deterministic questions. If you enable the optional cloud checkbox, a question is sent only to the same-origin local Bob server; the server may forward approved context to OpenRouter when `OPENROUTER_API_KEY` is configured. The workspace displays `providerConfigured` and `model` from `GET /health`; it never receives the API key.
+Open `http://127.0.0.1:4173`. Bob starts with an empty workspace. Add a user brief or import an explicit `User:`/`Assistant:` transcript, then inspect the intent ledger, project flow, lessons, human-run checks, and local deterministic questions. If you enable the optional cloud checkbox, a question is sent only to the same-origin local Bob server; the server may forward the bounded workspace context to OpenRouter when `OPENROUTER_API_KEY` is configured. The workspace displays `providerConfigured` and `model` from `GET /health`; it never receives the API key. Cloud analysis is labelled untrusted guidance and is never merged into confirmed workspace evidence.
 
 The workspace also has a pure model layer in `web/project.js`: use its brief/transcript import APIs to build a real workspace without scraping ChatGPT. When served by `server/workspace-server.mjs`, canonical workspace state is persisted locally under `.bob/` (or the directory named by `BOB_DATA_DIR`); opening the files directly remains session-local.
 
