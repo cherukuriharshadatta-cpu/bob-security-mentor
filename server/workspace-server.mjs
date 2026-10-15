@@ -553,8 +553,12 @@ if (isMain) {
     .then(({ host, port }) => {
       console.log(`Bob workspace listening on http://${host}:${port}`);
     })
-    .catch(() => {
-      console.error("Bob workspace could not start.");
+    .catch(error => {
+      if (error && error.code === "EADDRINUSE") {
+        console.error("Bob workspace could not start: port 4173 is already in use. Open http://127.0.0.1:4173 or set BOB_WEB_PORT to another port.");
+      } else {
+        console.error("Bob workspace could not start: " + (error && error.message ? error.message : "unknown startup error") + ".");
+      }
       process.exitCode = 1;
     });
 }
