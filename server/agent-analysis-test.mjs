@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import {
   AGENT_ANALYSIS_CONTRACT_VERSION,
   AGENT_ANALYSIS_PATH,
+  CHATBASE_MENTOR_PATH,
   DEFAULT_MODEL,
   createServer,
   validateAgentAnalysisOutput,
-  validateAgentAnalysisRequest
+  validateAgentAnalysisRequest,
+  validateChatbaseMentorRequest
 } from "./openrouter-proxy.mjs";
 import { createWorkspaceServer } from "./workspace-server.mjs";
 
@@ -92,6 +94,53 @@ async function postWorkspace(base, body) {
   });
 }
 
+async function postWorkspaceChatbase(base, body, secret = "chatbase-test-secret") {
+  return fetch(`${base}${CHATBASE_MENTOR_PATH}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Origin: base,
+      "x-bob-integration-secret": secret
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+async function postWorkspaceChatbaseServerToServer(base, body, secret = "chatbase-test-secret") {
+  return fetch(`${base}${CHATBASE_MENTOR_PATH}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-bob-integration-secret": secret
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+function chatbaseRequest() {
+  return {
+    source: "chatbase",
+    agentId: "agent_demo",
+    conversationId: "conversation_123",
+    userId: "user_42",
+    consent: true,
+    userMessage: "What should I verify before sharing this project?",
+    project: { projectName: "Task tracker", objective: "Keep personal data server-side" },
+    messages: [{ role: "user", text: "Goal: Build a task tracker." }]
+  };
+}
+
+async function postChatbase(base, body, secret = "chatbase-test-secret") {
+  return fetch(`${base}${CHATBASE_MENTOR_PATH}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-bob-integration-secret": secret
+    },
+    body: JSON.stringify(body)
+  });
+}
+
 let checks = 0;
 function check(name, run) {
   return Promise.resolve(run()).then(() => {
@@ -106,6 +155,13 @@ await check("agent request validation bounds context and requires consent", () =
   assert.equal(validateAgentAnalysisRequest({ ...validRequest(), workspaceContext: { unknown: "no" } }).ok, false);
   assert.equal(validateAgentAnalysisRequest({ ...validRequest(), userQuestion: "x".repeat(1801) }).ok, false);
   assert.equal(validateAgentAnalysisRequest({ ...validRequest(), workspaceContext: { ...validRequest().workspaceContext, flow: [{ id: "auth", status: "maybe", summary: "no" }] } }).ok, false);
+});
+
+await check("Chatbase adapter normalizes bounded action inputs and requires consent", () => {
+  assert.equal(validateChatbaseMentorRequest(chatbaseRequest()).ok, true);
+  assert.equal(validateChatbaseMentorRequest({ ...chatbaseRequest(), consent: false }).code, "consent_required");
+  assert.equal(validateChatbaseMentorRequest({ ...chatbaseRequest(), conversationId: "bad id" }).ok, false);
+  assert.equal(validateChatbaseMentorRequest({ ...chatbaseRequest(), inputs: { question: "Use the declared action question." } }).value.userQuestion, "Use the declared action question.");
 });
 
 await check("agent output validation requires explicit untrusted markers and rejects assurance claims", () => {
@@ -148,8 +204,44 @@ await check("agent output validation requires explicit untrusted markers and rej
 }
 
 {
+  const calls = [];
+  const server = createServer({
+    env: {
+      OPENROUTER_API_KEY: "server-only-agent-test-key",
+      OPENROUTER_MODEL: DEFAULT_MODEL,
+      BOB_CHATBASE_SHARED_SECRET: "chatbase-test-secret"
+    },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options, body: JSON.parse(options.body) });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }), { status: 200 });
+    }
+  });
+  const base = await listen(server);
+  try {
+    await check("Chatbase custom-action endpoint returns a compact untrusted mentor result", async () => {
+      const response = await postChatbase(base, chatbaseRequest());
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.status, "success");
+      assert.equal(body.data.untrusted, true);
+      assert.equal(body.data.contractVersion, AGENT_ANALYSIS_CONTRACT_VERSION);
+      assert.equal(body.data.conversationId, "conversation_123");
+      assert.equal(body.data.nextStep.untrusted, true);
+      assert.equal(calls.length, 1);
+    });
+    await check("Chatbase adapter rejects missing or wrong integration secret", async () => {
+      const response = await postChatbase(base, chatbaseRequest(), "wrong-secret");
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error.code, "integration_unauthorized");
+    });
+  } finally {
+    await close(server);
+  }
+}
+
+{
   const server = createWorkspaceServer({
-    env: { BOB_WEB_PORT: "0", OPENROUTER_API_KEY: "server-only-agent-test-key" },
+    env: { BOB_WEB_PORT: "0", OPENROUTER_API_KEY: "server-only-agent-test-key", BOB_CHATBASE_SHARED_SECRET: "chatbase-test-secret" },
     fetchImpl: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }), { status: 200 })
   });
   const base = await listen(server);
@@ -159,9 +251,22 @@ await check("agent output validation requires explicit untrusted markers and rej
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), output);
     });
+    await check("workspace listener exposes the Chatbase adapter route", async () => {
+      const response = await postWorkspaceChatbase(base, chatbaseRequest());
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.status, "success");
+      assert.equal(body.data.untrusted, true);
+      assert.equal(body.data.conversationId, "conversation_123");
+    });
+    await check("workspace Chatbase adapter accepts server-to-server requests without Origin", async () => {
+      const response = await postWorkspaceChatbaseServerToServer(base, chatbaseRequest());
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).status, "success");
+    });
   } finally {
     await close(server);
   }
 }
 
-console.log(`\n${checks} agent-analysis checks passed. No live OpenRouter request was made.`);
+console.log(`\n${checks} agent-analysis/integration checks passed. No live OpenRouter request was made.`);

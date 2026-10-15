@@ -1,0 +1,37 @@
+{
+  "status": "success",
+  "data": {
+    "contractVersion": "agent-analysis.v1",
+    "reply": "Review the ownership rule before adding more screens.",
+    "nextStep": {
+      "text": "Write one sentence describing who may create and edit a task.",
+      "reason": "The rule gives the implementation and human check a precise boundary.",
+      "untrusted": true
+    },
+    "lesson": {
+      "title": "Authentication is not authorization",
+      "text": "A signed-in user still needs an ownership check for each record.",
+      "untrusted": true
+    },
+    "clarification": {
+      "question": "Is this a private demo or intended for real users?",
+      "reason": "The scope changes which checks to plan.",
+      "untrusted": true
+    },
+    "verificationNeeded": [
+      {
+        "id": "record-owner",
+        "text": "Try account A reading and changing account B's task and record the observed result.",
+        "untrusted": true
+      }
+    ],
+    "limitations": [
+      {
+        "id": "no-runtime",
+        "text": "Bob did not run tests or inspect the implementation.",
+        "untrusted": true
+      }
+    ],
+    "untrusted": true
+  }
+}

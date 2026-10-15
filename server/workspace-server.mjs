@@ -10,8 +10,10 @@ import {
   HEALTH_PATH,
   MAX_REQUEST_BYTES,
   MENTOR_PATH,
+  CHATBASE_MENTOR_PATH,
   getConfig,
   handleAgentAnalysis,
+  handleChatbaseMentor,
   handleMentor
 } from "./openrouter-proxy.mjs";
 
@@ -79,11 +81,13 @@ export function getWorkspaceConfig(env = process.env) {
     throw new Error("BOB_WEB_PORT must be an integer from 0 to 65535.");
   }
   // The extension's BOB_PORT setting is independent of the workspace listener.
-  const { model, apiKey } = getConfig({
+  const { model, apiKey, chatbaseSecret } = getConfig({
     OPENROUTER_MODEL: env.OPENROUTER_MODEL,
-    OPENROUTER_API_KEY: env.OPENROUTER_API_KEY
+    OPENROUTER_API_KEY: env.OPENROUTER_API_KEY,
+    BOB_CHATBASE_SHARED_SECRET: env.BOB_CHATBASE_SHARED_SECRET
   });
   const config = { host: DEFAULT_HOST, port, model, apiKey };
+  Object.defineProperty(config, "chatbaseSecret", { value: chatbaseSecret, enumerable: false });
   // Keep the original enumerable config shape stable for callers that expose
   // it, while making the local persistence location available to the listener.
   Object.defineProperty(config, "dataDir", { value: getWorkspaceDataDir(env), enumerable: false });
@@ -443,9 +447,10 @@ async function routeRequest(req, res, config, fetchImpl) {
 
   const origin = req.headers.origin;
   const readOnly = req.method === "GET" || req.method === "HEAD";
+  const serverToServerIntegration = (req.url || "").split("?", 1)[0] === CHATBASE_MENTOR_PATH;
   // A missing Origin is useful for navigation and local health checks, but
   // never authorizes a cloud request. Aliases must still match the Host used.
-  if (headerCount(req, "origin") > 1 || (origin !== undefined && origin !== expectedOrigin) || (!readOnly && origin !== expectedOrigin)) {
+  if (headerCount(req, "origin") > 1 || (origin !== undefined && origin !== expectedOrigin) || (!readOnly && origin !== expectedOrigin && !(serverToServerIntegration && origin === undefined))) {
     sendError(req, res, 403, "origin_not_allowed", "A same-origin request is required.");
     return;
   }
@@ -470,7 +475,7 @@ async function routeRequest(req, res, config, fetchImpl) {
     return;
   }
 
-  if (pathname === MENTOR_PATH || pathname === AGENT_ANALYSIS_PATH) {
+  if (pathname === MENTOR_PATH || pathname === AGENT_ANALYSIS_PATH || pathname === CHATBASE_MENTOR_PATH) {
     if (req.method === "OPTIONS") {
       res.writeHead(204, { Allow: "POST, OPTIONS" });
       res.end();
@@ -481,7 +486,9 @@ async function routeRequest(req, res, config, fetchImpl) {
       sendError(req, res, 405, "method_not_allowed", "Use POST.");
       return;
     }
-    const handler = pathname === AGENT_ANALYSIS_PATH ? handleAgentAnalysis : handleMentor;
+    const handler = pathname === AGENT_ANALYSIS_PATH
+      ? handleAgentAnalysis
+      : pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor : handleMentor;
     await handler(req, res, null, config, fetchImpl);
     return;
   }

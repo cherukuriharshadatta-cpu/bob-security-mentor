@@ -80,7 +80,7 @@ uncertainty[]
 verificationNeeded[]
 ```
 
-The request sent to OpenRouter uses `https://openrouter.ai/api/v1/chat/completions`, the configured model, a server-owned Bearer key, a system mentor prompt, and the redacted bounded reference data. It first requests a strict `json_schema`. A single `400` or `422` provider response is treated as a possible structured-output rejection and retried once with `response_format: {"type":"json_object"}`. No other retry is performed. Provider timeouts use a 25-second per-attempt limit.
+The request sent to OpenRouter uses `https://openrouter.ai/api/v1/chat/completions`, the configured model, a server-owned Bearer key, a system mentor prompt, and the redacted bounded reference data. It first requests a strict `json_schema`. A single `400` or `422` provider response is treated as a possible structured-output rejection and retried once with `response_format: {"type":"json_object"}`. No other retry is performed. Provider timeouts use a 60-second per-attempt limit to accommodate free-model cold starts.
 
 Captured conversation and project text are explicitly marked as untrusted reference data in the system and user messages. They cannot grant tool access or override the mentor's constraints. The backend does not execute model output.
 
@@ -132,6 +132,26 @@ The response is the exact object the standalone UI should consume. Every model-d
   }
 }
 ```
+
+### `POST /v1/integrations/chatbase/mentor`
+
+This is the provider-neutral Bob adapter for a Chatbase **Server Custom Action**
+or **Server with UI (Widget)** action. It is deliberately an adapter, not a
+claim that Chatbase supports arbitrary assistant-message injection or nested
+agents.
+
+The endpoint requires `BOB_CHATBASE_SHARED_SECRET` and a matching
+`x-bob-integration-secret` header (or bearer token), `consent: true`, an
+`agentId`, a `conversationId`, and a non-empty `userMessage`. `messages` and
+`project` are optional bounded context; custom actions only receive fields that
+you configure, so Bob never assumes a full transcript is available.
+
+The response is a compact Chatbase-friendly object with `status: "success"`
+and `data.reply`, `data.nextStep`, `data.lesson`, `data.clarification`,
+`data.verificationNeeded`, `data.limitations`, and `data.untrusted: true`.
+Use the response in the action or supported widget primitives. Do not put the
+shared secret in browser JavaScript. See `integrations/chatbase/README.md` and
+`integrations/chatbase/action-response.example.json` for the setup contract.
 
 The route uses the same server-owned Nemotron/OpenRouter key, redaction, consent check, strict schema request, one `json_object` fallback for a `400`/`422` structured-output rejection, and safe upstream error handling as the mentor route. The key is never included in a request or response.
 

@@ -27,6 +27,8 @@ $env:BOB_WEB_PORT = "4173"
 $env:BOB_DATA_DIR = ".bob"
 # Optional cloud provider settings; leave the key unset for local-only mode
 # $env:OPENROUTER_API_KEY = "<your-server-side-key>"
+# Optional Chatbase server-action authentication secret
+# $env:BOB_CHATBASE_SHARED_SECRET = "<long-random-server-secret>"
 $env:OPENROUTER_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 node server/workspace-server.mjs
 ```
@@ -34,6 +36,20 @@ node server/workspace-server.mjs
 Open `http://127.0.0.1:4173`. Bob starts with an empty workspace. Add a user brief or import an explicit `User:`/`Assistant:` transcript, then inspect the intent ledger, project flow, lessons, human-run checks, and local deterministic questions. If you enable the optional cloud checkbox, a question is sent only to the same-origin local Bob server; the server may forward the bounded workspace context to OpenRouter when `OPENROUTER_API_KEY` is configured. The workspace displays `providerConfigured` and `model` from `GET /health`; it never receives the API key. Cloud analysis is labelled untrusted guidance and is never merged into confirmed workspace evidence.
 
 The workspace also has a pure model layer in `web/project.js`: use its brief/transcript import APIs to build a real workspace without scraping ChatGPT. When served by `server/workspace-server.mjs`, canonical workspace state is persisted locally under `.bob/` (or the directory named by `BOB_DATA_DIR`); opening the files directly remains session-local.
+
+## Add Bob to a Chatbase agent
+
+Bob can be called from a Chatbase Server Custom Action through
+`POST /v1/integrations/chatbase/mentor`. Configure the action to send a stable
+`agentId`, `conversationId`, `userMessage`, `consent: true`, and only the
+bounded project/message fields you actually want Bob to review. Authenticate
+the server-to-server request with `BOB_CHATBASE_SHARED_SECRET`; never expose
+that secret or the OpenRouter key in a browser widget. Bob returns a compact
+`status: "success"` response with an untrusted reply, suggested next step,
+lesson, clarification, and human verification suggestions. See
+`integrations/chatbase/README.md` for the exact request, response, and
+Chatbase action setup. This uses documented custom-action/widget composition;
+it does not rely on undocumented assistant-message injection.
 
 No package installation or model download is needed for the extension. Cloud mode requires a server-side OpenRouter key and the local backend described in `server/README.md`; the key must never be entered into Bob or committed. No access to the ChatGPT home page, temporary chats without a saved conversation ID, share pages, or other AI sites is supported for capture.
 

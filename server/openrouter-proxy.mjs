@@ -1,4 +1,5 @@
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +7,7 @@ export const DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const MENTOR_PATH = "/v1/mentor/respond";
 export const AGENT_ANALYSIS_PATH = "/v1/agent/analyze";
+export const CHATBASE_MENTOR_PATH = "/v1/integrations/chatbase/mentor";
 export const AGENT_ANALYSIS_CONTRACT_VERSION = "agent-analysis.v1";
 export const HEALTH_PATH = "/health";
 export const DEFAULT_HOST = "127.0.0.1";
@@ -14,6 +16,7 @@ export const MAX_MESSAGE_COUNT = 40;
 export const MAX_TEXT_LENGTH = 1800;
 export const MAX_REQUEST_BYTES = 256 * 1024;
 export const MAX_PROVIDER_RESPONSE_BYTES = 512 * 1024;
+export const CHATBASE_MAX_RESPONSE_BYTES = 20 * 1024;
 // Free hosted models can have a cold-start queue. Keep the request bounded,
 // but allow enough time for the configured Nemotron endpoint to answer.
 export const PROVIDER_TIMEOUT_MS = 60_000;
@@ -44,6 +47,13 @@ const TOP_LEVEL_FIELDS = new Set(["conversationKey", "messages", "project", "use
 const MESSAGE_FIELDS = new Set(["role", "text"]);
 const OUTPUT_MAX_TEXT = 8000;
 const OUTPUT_MAX_ARRAY = 20;
+const CHATBASE_MAX_ID_LENGTH = 160;
+const CHATBASE_TOP_LEVEL_FIELDS = new Set([
+  "source", "agentId", "conversationId", "userId", "sessionId", "userMessage", "messages", "project", "scope", "consent", "inputs"
+]);
+const CHATBASE_INPUT_FIELDS = new Set([
+  "agentId", "conversationId", "userId", "sessionId", "userMessage", "question", "messages", "project", "scope", "consent"
+]);
 export const MAX_AGENT_CONTEXT_BYTES = 96 * 1024;
 export const MAX_AGENT_CONTEXT_ITEMS = 20;
 export const MAX_AGENT_CONTEXT_MESSAGES = 40;
@@ -454,6 +464,140 @@ export function validateAgentAnalysisRequest(input) {
   return { ok: true, value: { cloudConsent: true, workspaceContext: context, userQuestion: input.userQuestion } };
 }
 
+function chatbaseId(value, required = false) {
+  if (typeof value !== "string") return required ? null : "";
+  const normalized = value.trim();
+  if (!normalized || normalized.length > CHATBASE_MAX_ID_LENGTH || !/^[A-Za-z0-9_.:-]+$/.test(normalized)) return required ? null : "";
+  return normalized;
+}
+
+function chatbaseMessageList(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_AGENT_CONTEXT_MESSAGES) return null;
+  const messages = [];
+  for (const message of value) {
+    if (!isPlainObject(message) || Object.keys(message).some(key => !MESSAGE_FIELDS.has(key))) return null;
+    if ((message.role !== "user" && message.role !== "assistant") || !isBoundedString(message.text, MAX_TEXT_LENGTH, false)) return null;
+    messages.push({ role: message.role, text: message.text });
+  }
+  return messages;
+}
+
+function chatbaseProject(value) {
+  if (value === undefined) return {};
+  if (!isPlainObject(value)) return null;
+  const project = Object.create(null);
+  for (const key of Object.keys(value)) {
+    if (!PROJECT_FIELD_SET.has(key) || !isBoundedString(value[key])) return null;
+    project[key] = value[key];
+  }
+  return project;
+}
+
+/**
+ * Normalize the small set of fields a Chatbase Server Custom Action can pass.
+ * `inputs` is supported because Chatbase action configurations commonly group
+ * declared action parameters there; it is merged only from an allowlist.
+ */
+export function validateChatbaseMentorRequest(input) {
+  if (!isPlainObject(input)) return invalid();
+  if (Object.keys(input).some(key => !CHATBASE_TOP_LEVEL_FIELDS.has(key))) return invalid();
+  if (input.source !== undefined && input.source !== "chatbase") return invalid();
+  const declared = isPlainObject(input.inputs) ? input.inputs : {};
+  if (Object.keys(declared).some(key => !CHATBASE_INPUT_FIELDS.has(key))) return invalid();
+  const value = Object.assign({}, input, declared);
+  const agentId = chatbaseId(value.agentId, true);
+  const conversationId = chatbaseId(value.conversationId || value.sessionId, true);
+  const userId = value.userId === undefined ? "" : chatbaseId(value.userId, false);
+  if (!agentId || !conversationId || value.userId !== undefined && !userId) return invalid();
+  const userMessage = typeof declared.question === "string" ? declared.question
+    : typeof declared.userMessage === "string" ? declared.userMessage
+      : typeof value.userMessage === "string" ? value.userMessage : value.question;
+  if (!isBoundedString(userMessage, MAX_TEXT_LENGTH, false)) return invalid();
+  if (value.consent !== true) return invalid("consent_required");
+  const messages = chatbaseMessageList(value.messages);
+  if (!messages) return invalid();
+  const project = chatbaseProject(value.project);
+  if (!project) return invalid();
+  const scope = value.scope === undefined ? "unspecified" : value.scope;
+  if (!["demo", "production", "unspecified"].includes(scope)) return invalid();
+  const contextMessages = messages.length ? messages : [{ role: "user", text: userMessage }];
+  const workspaceContext = {
+    workspaceId: "chatbase:" + agentId + ":" + conversationId,
+    name: "Chatbase conversation " + conversationId,
+    scope,
+    project,
+    messages: contextMessages,
+    intent: { current: [], replaced: [], uncertain: [] },
+    flow: [],
+    checks: []
+  };
+  if (Buffer.byteLength(JSON.stringify(workspaceContext), "utf8") > MAX_AGENT_CONTEXT_BYTES) return invalid();
+  return {
+    ok: true,
+    value: {
+      agentId,
+      conversationId,
+      userId,
+      cloudConsent: true,
+      workspaceContext,
+      userQuestion: userMessage
+    }
+  };
+}
+
+function secretMatches(req, secret) {
+  if (!secret) return false;
+  const header = req.headers["x-bob-integration-secret"] || req.headers.authorization?.replace(/^Bearer\s+/i, "");
+  if (typeof header !== "string" || !header) return false;
+  const expected = Buffer.from(secret);
+  const actual = Buffer.from(header);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function chatbaseResponse(output, input) {
+  const compactText = value => String(value == null ? "" : value).slice(0, 1600);
+  const compactList = list => (Array.isArray(list) ? list.slice(0, 8).map(item => ({
+    id: item.id,
+    text: compactText(item.text),
+    untrusted: true
+  })) : []);
+  const compactFlow = flow => ({
+    nodes: Array.isArray(flow?.nodes) ? flow.nodes.slice(0, 8).map(node => ({
+      id: node.id,
+      status: node.status,
+      summary: compactText(node.summary),
+      untrusted: true
+    })) : [],
+    untrusted: true
+  });
+  const nextAction = output.nextAction || { text: "Choose one small project check to run next.", reason: "The agent returned no specific next action.", untrusted: true };
+  const lesson = output.lesson || { title: "Review the boundary", text: "Treat this as guidance and confirm it with a human-run check.", untrusted: true };
+  const verification = output.verification || { suggestions: [], limitations: [], untrusted: true };
+  const clarification = output.clarification || { question: "", reason: "", untrusted: true };
+  return {
+    status: "success",
+    data: {
+      contractVersion: AGENT_ANALYSIS_CONTRACT_VERSION,
+      reply: compactText(output.reply || nextAction.text || lesson.text),
+      nextStep: { text: compactText(nextAction.text), reason: compactText(nextAction.reason), untrusted: true },
+      lesson: { title: compactText(lesson.title), text: compactText(lesson.text), untrusted: true },
+      clarification: { question: compactText(clarification.question), reason: compactText(clarification.reason), untrusted: true },
+      flowReview: compactFlow(output.flowReview),
+      intentUpdate: {
+        current: compactList(output.intentUpdate?.current),
+        replaced: compactList(output.intentUpdate?.replaced),
+        uncertain: compactList(output.intentUpdate?.uncertain),
+        untrusted: true
+      },
+      verificationNeeded: compactList(verification.suggestions),
+      limitations: compactList(verification.limitations),
+      conversationId: input.conversationId,
+      untrusted: true
+    }
+  };
+}
+
 function strictResponseFormat(name = "bob_mentor_response", schema = RESPONSE_JSON_SCHEMA) {
   return {
     type: "json_schema",
@@ -756,7 +900,8 @@ export function getConfig(env = process.env) {
     host: DEFAULT_HOST,
     port: parsePort(env),
     model: typeof env.OPENROUTER_MODEL === "string" && env.OPENROUTER_MODEL.trim() ? env.OPENROUTER_MODEL.trim() : DEFAULT_MODEL,
-    apiKey: typeof env.OPENROUTER_API_KEY === "string" ? env.OPENROUTER_API_KEY.trim() : ""
+    apiKey: typeof env.OPENROUTER_API_KEY === "string" ? env.OPENROUTER_API_KEY.trim() : "",
+    chatbaseSecret: typeof env.BOB_CHATBASE_SHARED_SECRET === "string" ? env.BOB_CHATBASE_SHARED_SECRET.trim() : ""
   };
 }
 
@@ -912,6 +1057,88 @@ export async function handleAgentAnalysis(req, res, origin, config, fetchImpl) {
   sendJson(res, 200, safeOutput, origin);
 }
 
+export async function handleChatbaseMentor(req, res, origin, config, fetchImpl) {
+  if (!secretMatches(req, config.chatbaseSecret)) {
+    sendJson(res, 401, publicError("integration_unauthorized", "The Chatbase integration is not authorized."), origin);
+    return;
+  }
+  const type = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+  if (type !== "application/json") {
+    sendJson(res, 415, publicError("unsupported_media_type", "Use application/json."), origin);
+    return;
+  }
+  let bodyText;
+  try {
+    bodyText = await readRequestBody(req);
+  } catch (error) {
+    if (error instanceof BodyLimitError) {
+      req.resume();
+      sendJson(res, 413, publicError("payload_too_large", "Request is too large."), origin);
+      return;
+    }
+    sendJson(res, 400, publicError("invalid_request", "Invalid request."), origin);
+    return;
+  }
+  let input;
+  try {
+    input = JSON.parse(bodyText);
+  } catch {
+    sendJson(res, 400, publicError("invalid_json", "Request must contain valid JSON."), origin);
+    return;
+  }
+  const validation = validateChatbaseMentorRequest(input);
+  if (!validation.ok) {
+    sendJson(res, 400, publicError(validation.code, validation.message), origin);
+    return;
+  }
+  if (!config.apiKey) {
+    sendJson(res, 503, publicError("not_configured", "Mentor provider is not configured."), origin);
+    return;
+  }
+  const agentInput = {
+    cloudConsent: true,
+    workspaceContext: validation.value.workspaceContext,
+    userQuestion: validation.value.userQuestion
+  };
+  let providerResult = await callProvider({
+    fetchImpl, apiKey: config.apiKey, model: config.model, input: agentInput, fallback: false,
+    payloadBuilder: buildAgentAnalysisPayload
+  });
+  if (shouldRetryStructured(providerResult)) {
+    providerResult = await callProvider({
+      fetchImpl, apiKey: config.apiKey, model: config.model, input: agentInput, fallback: true,
+      payloadBuilder: buildAgentAnalysisPayload
+    });
+  }
+  if (providerResult.kind === "timeout") {
+    sendJson(res, 504, publicError("provider_timeout", "Mentor provider timed out."), origin);
+    return;
+  }
+  if (providerResult.kind !== "ok") {
+    sendJson(res, 502, publicError("provider_error", "Mentor provider request failed."), origin);
+    return;
+  }
+  let providerJson;
+  try {
+    providerJson = JSON.parse(providerResult.text);
+  } catch {
+    sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned invalid data."), origin);
+    return;
+  }
+  const parsedOutput = parseModelJson(modelContent(providerJson));
+  const safeOutput = redactValue(parsedOutput);
+  if (!validateAgentAnalysisOutput(safeOutput)) {
+    sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned an unexpected response."), origin);
+    return;
+  }
+  const response = chatbaseResponse(safeOutput, validation.value);
+  if (Buffer.byteLength(JSON.stringify(response), "utf8") > CHATBASE_MAX_RESPONSE_BYTES) {
+    sendJson(res, 502, publicError("response_too_large", "The mentor response could not fit the Chatbase action limit."), origin);
+    return;
+  }
+  sendJson(res, 200, response, origin);
+}
+
 export function createServer({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
   const config = getConfig(env);
   return http.createServer((req, res) => {
@@ -930,7 +1157,7 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
     }
 
     if (req.method === "OPTIONS") {
-      if (![MENTOR_PATH, AGENT_ANALYSIS_PATH].includes(parsedUrl.pathname)) {
+       if (![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH].includes(parsedUrl.pathname)) {
         sendJson(res, 404, publicError("not_found", "Not found."), origin);
         return;
       }
@@ -945,12 +1172,14 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
       }, origin);
       return;
     }
-    if (req.method !== "POST" || ![MENTOR_PATH, AGENT_ANALYSIS_PATH].includes(parsedUrl.pathname)) {
+    if (req.method !== "POST" || ![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH].includes(parsedUrl.pathname)) {
       sendJson(res, 404, publicError("not_found", "Not found."), origin);
       return;
     }
 
-    const handler = parsedUrl.pathname === AGENT_ANALYSIS_PATH ? handleAgentAnalysis : handleMentor;
+    const handler = parsedUrl.pathname === AGENT_ANALYSIS_PATH
+      ? handleAgentAnalysis
+      : parsedUrl.pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor : handleMentor;
     handler(req, res, origin, config, fetchImpl).catch(() => {
       sendJson(res, 500, publicError("internal_error", "The server could not complete the request."), origin);
     });
