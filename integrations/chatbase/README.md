@@ -106,3 +106,8 @@ as a widget, not written into the conversation through an undocumented API.
 Chatbase-supported widget surface. It performs no network request and contains
 no credential. Your trusted server or custom action must provide the already
 validated response to it.
+
+For a floating host integration, see
+[`../embeddable/README.md`](../embeddable/README.md). It documents how the host
+owns context/events and proxies requests server-side; the browser card remains
+render-only.

@@ -51,6 +51,10 @@ lesson, clarification, and human verification suggestions. See
  Chatbase action setup. This uses documented custom-action/widget composition;
  it does not rely on undocumented assistant-message injection.
 
+For a floating embeddable surface, see
+`integrations/embeddable/README.md` for the host bridge, bounded context/event
+flow, and server-side proxy pattern.
+
 ## Universal Bob adapter
 
 For a custom chatbot, IDE, workflow, or other authorized host, use the
@@ -62,6 +66,12 @@ review-only guidance. This adapter preserves the same intent, next-action,
 lesson, clarification, security-review, and human-verification boundaries as
 the standalone workspace. See `integrations/generic/README.md` for the exact
 contract and `server/bob-mentor-adapter.mjs` for the normalization boundary.
+
+To see the actual floating agent UI locally, open
+`http://127.0.0.1:4173/widget-demo.html`. The demo simulates a host chatbot,
+updates Bob with user/assistant messages, and uses a mock guidance callback.
+For a real host, replace that callback with a same-origin server proxy; never
+put `BOB_GENERIC_SHARED_SECRET` or `OPENROUTER_API_KEY` in the widget.
 
 No package installation or model download is needed for the extension. Cloud mode requires a server-side OpenRouter key and the local backend described in `server/README.md`; the key must never be entered into Bob or committed. No access to the ChatGPT home page, temporary chats without a saved conversation ID, share pages, or other AI sites is supported for capture.
 
@@ -135,6 +145,7 @@ Run from this folder:
 ```text
 node tests/smoke.mjs
 node tests/lifecycle.mjs
+node tests/embeddable-integration.mjs
 node server/test.mjs
 node tests/workspace-model.mjs
 node server/workspace-test.mjs
@@ -148,6 +159,11 @@ node --check web/app.js
 ```
 
 The first suite checks the manifest, URL boundaries, synthetic DOM capture, current goals, bounded history, immutable edits, schema migration, security signals, and Markdown. The second runs real content/core code in a **mocked** DOM/storage environment to check consent, streaming, navigation, delayed callbacks, deletion races, cross-tab changes, and storage failure. The workspace-model suite checks explicit-role import, intent provenance, scope changes, immutable checks, lessons and safe export. The workspace-server suite checks the loopback static server, traversal/private-file blocking, origin/host restrictions and mocked cloud forwarding. Server checks use no live key unless you configure one yourself.
+
+`tests/embeddable-integration.mjs` loads the floating widget in the minimal DOM
+fixture and checks its render-only browser boundary, host bridge methods,
+untrusted text rendering, missing `requestGuidance` behavior, and bounded
+context/messages.
 
 These tests do not validate Chrome's real layout, content-script Web Locks, stylesheet loading, downloads, or the current ChatGPT DOM. Follow `tests/MANUAL.md` in Chrome/Edge. No dedicated lint/typecheck tooling is installed; this is plain JavaScript with Node syntax checks and no build pipeline.
 

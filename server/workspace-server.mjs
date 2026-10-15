@@ -47,7 +47,9 @@ export const STATIC_ROUTES = Object.freeze({
   "/styles.css": "web/styles.css",
   "/app.js": "web/app.js",
   "/project.js": "web/project.js",
-  "/core.js": "src/core.js"
+  "/core.js": "src/core.js",
+  "/widget-demo.html": "integrations/widget/demo.html",
+  "/bob-agent-widget.js": "integrations/widget/bob-agent-widget.js"
 });
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
