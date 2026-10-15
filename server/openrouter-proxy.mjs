@@ -1,7 +1,17 @@
 import http from "node:http";
-import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  GENERIC_MENTOR_MAX_RESPONSE_BYTES,
+  GENERIC_MENTOR_PATH,
+  genericMentorResponse,
+  normalizeGenericMentorRequest,
+  sharedSecretMatches
+} from "./bob-mentor-adapter.mjs";
+
+export { GENERIC_MENTOR_PATH };
+export { normalizeGenericMentorRequest };
+export { validateGenericMentorRequest } from "./bob-mentor-adapter.mjs";
 
 export const DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free";
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -547,12 +557,7 @@ export function validateChatbaseMentorRequest(input) {
 }
 
 function secretMatches(req, secret) {
-  if (!secret) return false;
-  const header = req.headers["x-bob-integration-secret"] || req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (typeof header !== "string" || !header) return false;
-  const expected = Buffer.from(secret);
-  const actual = Buffer.from(header);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  return sharedSecretMatches(req, secret);
 }
 
 function chatbaseResponse(output, input) {
@@ -777,7 +782,7 @@ function responseHeaders(origin) {
   if (origin) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "content-type";
+    headers["Access-Control-Allow-Headers"] = "content-type, x-bob-integration-secret, authorization";
     headers["Access-Control-Max-Age"] = "600";
   }
   return headers;
@@ -896,13 +901,18 @@ function parsePort(env) {
 }
 
 export function getConfig(env = process.env) {
-  return {
+  const genericSecret = typeof env.BOB_MENTOR_SHARED_SECRET === "string" && env.BOB_MENTOR_SHARED_SECRET.trim()
+    ? env.BOB_MENTOR_SHARED_SECRET.trim()
+    : typeof env.BOB_GENERIC_SHARED_SECRET === "string" ? env.BOB_GENERIC_SHARED_SECRET.trim() : "";
+  const config = {
     host: DEFAULT_HOST,
     port: parsePort(env),
     model: typeof env.OPENROUTER_MODEL === "string" && env.OPENROUTER_MODEL.trim() ? env.OPENROUTER_MODEL.trim() : DEFAULT_MODEL,
     apiKey: typeof env.OPENROUTER_API_KEY === "string" ? env.OPENROUTER_API_KEY.trim() : "",
     chatbaseSecret: typeof env.BOB_CHATBASE_SHARED_SECRET === "string" ? env.BOB_CHATBASE_SHARED_SECRET.trim() : ""
   };
+  Object.defineProperty(config, "genericSecret", { value: genericSecret, enumerable: false });
+  return config;
 }
 
 // HTTP callers enforce their own Host/Origin policy before entering this shared
@@ -1139,6 +1149,88 @@ export async function handleChatbaseMentor(req, res, origin, config, fetchImpl) 
   sendJson(res, 200, response, origin);
 }
 
+export async function handleGenericMentor(req, res, origin, config, fetchImpl) {
+  if (!sharedSecretMatches(req, config.genericSecret)) {
+    sendJson(res, 401, publicError("integration_unauthorized", "The mentor integration is not authorized."), origin);
+    return;
+  }
+  const type = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+  if (type !== "application/json") {
+    sendJson(res, 415, publicError("unsupported_media_type", "Use application/json."), origin);
+    return;
+  }
+  let bodyText;
+  try {
+    bodyText = await readRequestBody(req);
+  } catch (error) {
+    if (error instanceof BodyLimitError) {
+      req.resume();
+      sendJson(res, 413, publicError("payload_too_large", "Request is too large."), origin);
+      return;
+    }
+    sendJson(res, 400, publicError("invalid_request", "Invalid request."), origin);
+    return;
+  }
+  let input;
+  try {
+    input = JSON.parse(bodyText);
+  } catch {
+    sendJson(res, 400, publicError("invalid_json", "Request must contain valid JSON."), origin);
+    return;
+  }
+  const validation = normalizeGenericMentorRequest(input);
+  if (!validation.ok) {
+    sendJson(res, 400, publicError(validation.code, validation.message), origin);
+    return;
+  }
+  if (!config.apiKey) {
+    sendJson(res, 503, publicError("not_configured", "Mentor provider is not configured."), origin);
+    return;
+  }
+  const agentInput = {
+    cloudConsent: true,
+    workspaceContext: validation.value.workspaceContext,
+    userQuestion: validation.value.userQuestion
+  };
+  let providerResult = await callProvider({
+    fetchImpl, apiKey: config.apiKey, model: config.model, input: agentInput, fallback: false,
+    payloadBuilder: buildAgentAnalysisPayload
+  });
+  if (shouldRetryStructured(providerResult)) {
+    providerResult = await callProvider({
+      fetchImpl, apiKey: config.apiKey, model: config.model, input: agentInput, fallback: true,
+      payloadBuilder: buildAgentAnalysisPayload
+    });
+  }
+  if (providerResult.kind === "timeout") {
+    sendJson(res, 504, publicError("provider_timeout", "Mentor provider timed out."), origin);
+    return;
+  }
+  if (providerResult.kind !== "ok") {
+    sendJson(res, 502, publicError("provider_error", "Mentor provider request failed."), origin);
+    return;
+  }
+  let providerJson;
+  try {
+    providerJson = JSON.parse(providerResult.text);
+  } catch {
+    sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned invalid data."), origin);
+    return;
+  }
+  const parsedOutput = parseModelJson(modelContent(providerJson));
+  const safeOutput = redactValue(parsedOutput);
+  if (!validateAgentAnalysisOutput(safeOutput)) {
+    sendJson(res, 502, publicError("invalid_model_response", "Mentor provider returned an unexpected response."), origin);
+    return;
+  }
+  const response = genericMentorResponse(safeOutput, validation.value);
+  if (Buffer.byteLength(JSON.stringify(response), "utf8") > GENERIC_MENTOR_MAX_RESPONSE_BYTES) {
+    sendJson(res, 502, publicError("response_too_large", "The mentor response could not fit the integration limit."), origin);
+    return;
+  }
+  sendJson(res, 200, response, origin);
+}
+
 export function createServer({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
   const config = getConfig(env);
   return http.createServer((req, res) => {
@@ -1157,7 +1249,7 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
     }
 
     if (req.method === "OPTIONS") {
-       if (![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH].includes(parsedUrl.pathname)) {
+        if (![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(parsedUrl.pathname)) {
         sendJson(res, 404, publicError("not_found", "Not found."), origin);
         return;
       }
@@ -1172,14 +1264,15 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
       }, origin);
       return;
     }
-    if (req.method !== "POST" || ![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH].includes(parsedUrl.pathname)) {
+    if (req.method !== "POST" || ![MENTOR_PATH, AGENT_ANALYSIS_PATH, CHATBASE_MENTOR_PATH, GENERIC_MENTOR_PATH].includes(parsedUrl.pathname)) {
       sendJson(res, 404, publicError("not_found", "Not found."), origin);
       return;
     }
 
     const handler = parsedUrl.pathname === AGENT_ANALYSIS_PATH
       ? handleAgentAnalysis
-      : parsedUrl.pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor : handleMentor;
+      : parsedUrl.pathname === CHATBASE_MENTOR_PATH ? handleChatbaseMentor
+        : parsedUrl.pathname === GENERIC_MENTOR_PATH ? handleGenericMentor : handleMentor;
     handler(req, res, origin, config, fetchImpl).catch(() => {
       sendJson(res, 500, publicError("internal_error", "The server could not complete the request."), origin);
     });

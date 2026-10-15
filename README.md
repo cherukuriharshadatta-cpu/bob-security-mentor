@@ -48,8 +48,20 @@ that secret or the OpenRouter key in a browser widget. Bob returns a compact
 `status: "success"` response with an untrusted reply, suggested next step,
 lesson, clarification, and human verification suggestions. See
 `integrations/chatbase/README.md` for the exact request, response, and
-Chatbase action setup. This uses documented custom-action/widget composition;
-it does not rely on undocumented assistant-message injection.
+ Chatbase action setup. This uses documented custom-action/widget composition;
+ it does not rely on undocumented assistant-message injection.
+
+## Universal Bob adapter
+
+For a custom chatbot, IDE, workflow, or other authorized host, use the
+provider-neutral server-to-server route `POST /v1/integrations/mentor`. Send a
+stable `source`, `conversationId`, `userMessage`, `consent: true`, and only the
+bounded context the host is allowed to share. Authenticate with
+`BOB_GENERIC_SHARED_SECRET` and consume the `status/data` response as
+review-only guidance. This adapter preserves the same intent, next-action,
+lesson, clarification, security-review, and human-verification boundaries as
+the standalone workspace. See `integrations/generic/README.md` for the exact
+contract and `server/bob-mentor-adapter.mjs` for the normalization boundary.
 
 No package installation or model download is needed for the extension. Cloud mode requires a server-side OpenRouter key and the local backend described in `server/README.md`; the key must never be entered into Bob or committed. No access to the ChatGPT home page, temporary chats without a saved conversation ID, share pages, or other AI sites is supported for capture.
 
