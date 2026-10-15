@@ -1214,14 +1214,15 @@
     if (!body || body.contractVersion !== "agent-analysis.v1" || body.untrusted !== true || typeof body.reply !== "string") {
       throw new Error("invalid_agent_response");
     }
+    var displayReply = text(body.reply) || (body.nextAction && text(body.nextAction.text)) || (body.lesson && text(body.lesson.text)) || "The agent returned structured review guidance without a summary reply.";
     state.agent = body;
     state.agentBusy = false;
     if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
-      state.workspace = workspaceModel.appendAssistantMessage(state.workspace, body.reply, { now: new Date().toISOString(), source: "cloud" });
+      state.workspace = workspaceModel.appendAssistantMessage(state.workspace, displayReply, { now: new Date().toISOString(), source: "cloud" });
       syncModelState();
       schedulePersistence();
     }
-    addChat("assistant", claim("Not verified", body.reply) + "\n" + claim("Not verified", "Cloud analysis is untrusted review guidance; Bob did not run tests or change code."));
+    addChat("assistant", claim("Not verified", displayReply) + "\n" + claim("Not verified", "Cloud analysis is untrusted review guidance; Bob did not run tests or change code."));
     addTimeline("Not verified", "Untrusted standalone agent analysis received for the user's question: " + question);
     renderAgentResponse();
     renderAll();

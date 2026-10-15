@@ -14,7 +14,9 @@ export const MAX_MESSAGE_COUNT = 40;
 export const MAX_TEXT_LENGTH = 1800;
 export const MAX_REQUEST_BYTES = 256 * 1024;
 export const MAX_PROVIDER_RESPONSE_BYTES = 512 * 1024;
-export const PROVIDER_TIMEOUT_MS = 25_000;
+// Free hosted models can have a cold-start queue. Keep the request bounded,
+// but allow enough time for the configured Nemotron endpoint to answer.
+export const PROVIDER_TIMEOUT_MS = 60_000;
 
 export const PROJECT_FIELDS = Object.freeze([
   "projectName",
