@@ -4,7 +4,7 @@ Use disposable conversations with synthetic content, not private projects or cre
 
 ## Installation and initial consent
 
-1. Reload the unpacked extension, confirm **0.6.0**, then refresh the ChatGPT tab.
+1. Reload the unpacked extension, confirm **0.7.0**, then refresh the ChatGPT tab.
 2. Open a saved conversation A. Verify the floating Bob button and styled panel appear.
 3. Before accepting, verify status says paused and the Allow button is disabled.
 4. Review the terms, checkbox, exact conversation key, local-only/no-AI disclosure and host-site-terms caveat.

@@ -3,6 +3,7 @@
 .env.*
 !**/.env.example
 *.local
+.bob/
 
 # Dependencies and generated output
 node_modules/

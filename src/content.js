@@ -9,7 +9,7 @@
   var DEFAULT_BACKEND = "http://127.0.0.1:8787";
   var MENTOR_HISTORY_LIMIT = 40;
   var MENTOR_TIMEOUT = 28000;
-  var FALLBACK_EXTENSION_VERSION = "0.6.0";
+  var FALLBACK_EXTENSION_VERSION = "0.7.0";
   var MENTOR_FIELDS = [
     ["projectUnderstanding", "Project understanding"],
     ["changedRequirements", "Changed requirements"],

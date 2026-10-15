@@ -30,6 +30,12 @@
             <span class="status-dot" aria-hidden="true"></span>
             <span data-status-label>Live evidence</span>
           </span>
+          <span id="persistence-status" class="live-status persistence-status" data-status="saved" aria-live="polite" title="Workspace persistence status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span data-persistence-label>Saved</span>
+          </span>
+          <button id="export-workspace" class="secondary-button workspace-control" type="button" data-action="export-workspace">Export workspace</button>
+          <button id="delete-workspace" class="secondary-button workspace-control workspace-control--danger" type="button" data-action="delete-workspace">Delete workspace</button>
           <button id="workspace-menu" class="icon-button" type="button" aria-label="Open workspace menu" aria-expanded="false" data-action="toggle-menu">
             <span aria-hidden="true">•••</span>
           </button>
@@ -419,6 +425,13 @@
               <span>Allow optional cloud mentor responses through this local Bob server.</span>
             </label>
             <p id="cloud-status" class="cloud-status">Cloud off · local deterministic teaching is active.</p>
+            <p id="provider-status" class="provider-status" data-provider-status aria-live="polite">Provider health · checking /health…</p>
+            <div id="transcript-import" class="transcript-import" data-region="transcript-import">
+              <p class="micro-label">IMPORT TRANSCRIPT</p>
+              <label for="transcript-input">Paste explicit User:/Assistant: lines to add to this workspace.</label>
+              <textarea id="transcript-input" rows="3" maxlength="12000" placeholder="User: Goal: Build a timer\nAssistant: Start with one small screen."></textarea>
+              <button id="import-transcript" class="secondary-button" type="button" data-action="import-transcript">Import</button>
+            </div>
            </form>
            <div id="chat-log" class="chat-log" aria-live="polite" aria-label="Bob mentor conversation"></div>
            <p id="mentor-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></p>

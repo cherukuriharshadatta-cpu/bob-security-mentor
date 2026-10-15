@@ -99,7 +99,7 @@ await check("validation enforces consent, bounded messages, known project fields
     await check("health is available without a provider key", async () => {
       const response = await fetch(`${base}/health`);
       assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), { ok: true });
+      assert.deepEqual(await response.json(), { ok: true, providerConfigured: false, model: DEFAULT_MODEL });
     });
 
     await check("allowed ChatGPT CORS is echoed and preflight succeeds", async () => {
@@ -124,6 +124,23 @@ await check("validation enforces consent, bounded messages, known project fields
       const response = await post(base, { ...validRequest(), cloudConsent: "yes" }, { Origin: "http://localhost:3000" });
       assert.equal(response.status, 400);
       assert.equal((await response.json()).error.code, "consent_required");
+    });
+  } finally {
+    await close(server);
+  }
+}
+
+{
+  const model = "nvidia/nemotron-test-model";
+  const server = createServer({ env: { OPENROUTER_API_KEY: "server-only-test-key", OPENROUTER_MODEL: model } });
+  const base = await listen(server);
+  try {
+    await check("configured health reports the model and never returns the provider credential", async () => {
+      const response = await fetch(`${base}/health`);
+      const body = await response.text();
+      assert.equal(response.status, 200);
+      assert.deepEqual(JSON.parse(body), { ok: true, providerConfigured: true, model });
+      assert.doesNotMatch(body, /server-only-test-key|apiKey|OPENROUTER_API_KEY/);
     });
   } finally {
     await close(server);

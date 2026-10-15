@@ -539,7 +539,11 @@ export function createServer({ env = process.env, fetchImpl = globalThis.fetch }
       return;
     }
     if (req.method === "GET" && parsedUrl.pathname === HEALTH_PATH) {
-      sendJson(res, 200, { ok: true }, origin);
+      sendJson(res, 200, {
+        ok: true,
+        providerConfigured: Boolean(config.apiKey),
+        model: config.model
+      }, origin);
       return;
     }
     if (req.method !== "POST" || parsedUrl.pathname !== MENTOR_PATH) {

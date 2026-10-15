@@ -4,9 +4,10 @@
   /*
    * Bob Agent hackathon demo
    *
-   * This file intentionally has no dependencies and does not make requests.
-   * The page may provide only some of the selectors below; every renderer is
-   * written to be useful when its corresponding element is absent.
+   * This file intentionally has no dependencies. Persistence uses only the
+   * same-origin workspace routes when they are available. The page may provide
+   * only some of the selectors below; every renderer is written to be useful
+   * when its corresponding element is absent.
    */
 
   var documentRef = global && global.document;
@@ -14,6 +15,14 @@
   var initialized = false;
   var runTimer = null;
   var state = null;
+  var persistenceTimer = null;
+  var persistencePromise = null;
+  var persistenceQueued = false;
+  var persistenceRevision = 0;
+  var persistenceEpoch = 0;
+  var loadingPromise = null;
+  var deleting = false;
+  var PERSISTENCE_DEBOUNCE = 350;
 
   var SELECTORS = {
     status: ["#agent-status", "#status-agent", "[data-agent-status]", ".agent-status"],
@@ -116,6 +125,8 @@
       workspace: workspace,
       analysis: null,
       cloudConsent: false,
+      providerConfigured: null,
+      providerModel: "",
       paused: false
     };
     syncModelState(next);
@@ -625,6 +636,260 @@
     runTimer = null;
   }
 
+  function cancelPersistenceTimer() {
+    if (persistenceTimer === null) return;
+    if (global && typeof global.clearTimeout === "function") global.clearTimeout(persistenceTimer);
+    else clearTimeout(persistenceTimer);
+    persistenceTimer = null;
+  }
+
+  function setPersistenceStatus(label, detail) {
+    var node = first("#persistence-status, [data-persistence-status]");
+    if (!node) return;
+    var labelNode = node.querySelector ? node.querySelector("[data-persistence-label]") : null;
+    setText(labelNode || node, label);
+    setData(node, "status", String(label).toLowerCase());
+    if (node.setAttribute) node.setAttribute("title", detail || label);
+  }
+
+  function providerSummary() {
+    if (!state || state.providerConfigured === null) return "providerConfigured: checking · model: checking";
+    return "providerConfigured: " + (state.providerConfigured ? "true" : "false") + " · model: " + state.providerModel;
+  }
+
+  function setProviderStatus(label, detail) {
+    var node = first("#provider-status, [data-provider-status]");
+    if (!node) return;
+    setText(node, label);
+    if (state && state.providerConfigured !== null) setData(node, "provider-configured", state.providerConfigured ? "true" : "false");
+    if (state && state.providerModel) setData(node, "provider-model", state.providerModel);
+    if (node.setAttribute) node.setAttribute("title", detail || label);
+  }
+
+  function renderCloudStatus() {
+    if (!state) return;
+    var summary = providerSummary();
+    setCloudStatus(state.cloudConsent
+      ? "Cloud on · consent recorded; " + summary + ". Review responses before acting."
+      : "Cloud off · local deterministic teaching is active; " + summary + ".");
+  }
+
+  function loadProviderHealth() {
+    if (!state || !global || typeof global.fetch !== "function") {
+      setProviderStatus("Provider health unavailable · GET /health", "The workspace server is unavailable; no credential was requested.");
+      return;
+    }
+    setProviderStatus("Checking provider · GET /health…", "Checking provider availability and model only; no conversation data or credential is sent.");
+    Promise.resolve().then(function () {
+      return global.fetch("/health", { method: "GET", headers: { "Accept": "application/json" } });
+    }).then(function (response) {
+      if (!response || !response.ok || typeof response.json !== "function") throw new Error("health_unavailable");
+      return response.json();
+    }).then(function (body) {
+      if (!body || body.ok !== true || typeof body.providerConfigured !== "boolean" || typeof body.model !== "string" || !text(body.model)) {
+        throw new Error("invalid_health");
+      }
+      state.providerConfigured = body.providerConfigured;
+      state.providerModel = text(body.model);
+      setProviderStatus(providerSummary(), "Reported by GET /health. The server returns availability and model only; it never returns the API key.");
+      renderCloudStatus();
+    }).catch(function () {
+      state.providerConfigured = null;
+      state.providerModel = "";
+      setProviderStatus("Provider health unavailable · GET /health", "The health response could not be read; no credential was requested.");
+      renderCloudStatus();
+    });
+  }
+
+  function workspaceRoute(id, suffix) {
+    var safeId = encodeURIComponent(String(id || "login-demo"));
+    return "/api/workspaces/" + safeId + (suffix || "");
+  }
+
+  function canonicalWorkspace(value) {
+    if (!workspaceModel || typeof workspaceModel.restoreWorkspace !== "function") return null;
+    try { return workspaceModel.restoreWorkspace(value); } catch (error) { return null; }
+  }
+
+  function chatFromWorkspace(workspace) {
+    return workspace && Array.isArray(workspace.messages)
+      ? workspace.messages.map(function (message) { return { role: message.role, text: message.text }; })
+      : [];
+  }
+
+  function adoptCanonicalWorkspace(value, revision) {
+    var canonical = canonicalWorkspace(value);
+    if (!canonical || !state || deleting || revision !== persistenceRevision) return false;
+    state.workspace = canonical;
+    syncModelState();
+    renderAll();
+    return true;
+  }
+
+  function schedulePersistence() {
+    if (!state || !state.workspace || deleting) return;
+    persistenceRevision += 1;
+    persistenceQueued = true;
+    setPersistenceStatus("Saving", "Workspace changes are queued for same-origin persistence.");
+    cancelPersistenceTimer();
+    persistenceTimer = schedule(function () {
+      persistenceTimer = null;
+      flushPersistence();
+    }, PERSISTENCE_DEBOUNCE);
+  }
+
+  function flushPersistence() {
+    if (!state || !state.workspace || deleting || !persistenceQueued) return;
+    if (persistencePromise) return;
+    if (!global || typeof global.fetch !== "function") {
+      persistenceQueued = false;
+      setPersistenceStatus("Offline", "Workspace persistence is unavailable; local changes remain in this session.");
+      return;
+    }
+
+    persistenceQueued = false;
+    var revision = persistenceRevision;
+    var epoch = persistenceEpoch;
+    var workspace = state.workspace;
+    setPersistenceStatus("Saving", "Workspace changes are being saved.");
+    var request = Promise.resolve().then(function () {
+      return global.fetch(workspaceRoute(workspace.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(workspace)
+      });
+    }).then(function (response) {
+      if (!response || !response.ok || typeof response.json !== "function") throw new Error("persistence_failed");
+      return response.json();
+    }).then(function (body) {
+      if (epoch !== persistenceEpoch || deleting) return;
+      if (revision !== persistenceRevision) {
+        persistenceQueued = true;
+        setPersistenceStatus("Saving", "New workspace changes are waiting to be saved.");
+        return;
+      }
+      if (!adoptCanonicalWorkspace(body, revision)) throw new Error("invalid_canonical_workspace");
+      setPersistenceStatus("Saved", "Workspace is saved to the local workspace server.");
+    }).catch(function () {
+      if (epoch === persistenceEpoch && !deleting && revision === persistenceRevision) {
+        setPersistenceStatus("Offline", "Workspace could not be saved; local changes remain in this session.");
+      }
+    }).then(function () {
+      persistencePromise = null;
+      if (persistenceQueued && !deleting && persistenceTimer === null) {
+        persistenceTimer = schedule(function () {
+          persistenceTimer = null;
+          flushPersistence();
+        }, PERSISTENCE_DEBOUNCE);
+      }
+    });
+    persistencePromise = request;
+  }
+
+  function loadWorkspace() {
+    if (!state || !state.workspace || !global || typeof global.fetch !== "function") {
+      setPersistenceStatus("Offline", "Workspace server unavailable; using the local demo model.");
+      return;
+    }
+    var revision = persistenceRevision;
+    var epoch = persistenceEpoch;
+    loadingPromise = Promise.resolve().then(function () {
+      return global.fetch(workspaceRoute("login-demo"), { headers: { "Accept": "application/json" } });
+    }).then(function (response) {
+      if (response && response.status === 404) {
+        if (revision === persistenceRevision && epoch === persistenceEpoch && !deleting) {
+          setPersistenceStatus("Offline", "No saved workspace was found; the local demo model is active.");
+        }
+        return null;
+      }
+      if (!response || !response.ok || typeof response.json !== "function") throw new Error("workspace_load_failed");
+      return response.json();
+    }).then(function (body) {
+      if (!body || revision !== persistenceRevision || epoch !== persistenceEpoch || deleting) return;
+      var canonical = canonicalWorkspace(body);
+      if (!canonical) throw new Error("invalid_workspace");
+      state.workspace = canonical;
+      state.chat = chatFromWorkspace(canonical);
+      syncModelState();
+      renderAll();
+      setPersistenceStatus("Saved", "Canonical workspace restored from the local workspace server.");
+    }).catch(function () {
+      if (revision === persistenceRevision && epoch === persistenceEpoch && !deleting) {
+        setPersistenceStatus("Offline", "Workspace could not be loaded; using the local demo model.");
+      }
+    }).then(function () {
+      loadingPromise = null;
+    });
+  }
+
+  function exportWorkspace() {
+    if (!state || !state.workspace || !global || typeof global.fetch !== "function") {
+      setPersistenceStatus("Offline", "Workspace export is unavailable; the local workspace is still open.");
+      return false;
+    }
+    var id = state.workspace.id;
+    global.fetch(workspaceRoute(id, "/export.md"), { headers: { "Accept": "text/markdown" } }).then(function (response) {
+      if (!response || !response.ok) throw new Error("export_failed");
+      if (typeof response.blob === "function") return response.blob();
+      if (typeof response.text === "function") return response.text().then(function (body) { return new Blob([body], { type: "text/markdown" }); });
+      throw new Error("export_unavailable");
+    }).then(function (blob) {
+      if (!documentRef || !documentRef.createElement || !global.URL || typeof global.URL.createObjectURL !== "function") throw new Error("download_unavailable");
+      var link = documentRef.createElement("a");
+      var url = global.URL.createObjectURL(blob);
+      link.href = url;
+      link.download = "bob-workspace-" + id + ".md";
+      link.hidden = true;
+      if (documentRef.body && documentRef.body.appendChild) documentRef.body.appendChild(link);
+      if (typeof link.click === "function") link.click();
+      if (link.remove) link.remove();
+      if (typeof global.URL.revokeObjectURL === "function") schedule(function () { global.URL.revokeObjectURL(url); }, 1000);
+      toast("Workspace export downloaded.");
+    }).catch(function () {
+      setPersistenceStatus("Offline", "Workspace export is unavailable; the local workspace is still open.");
+    });
+    return true;
+  }
+
+  function resetToFreshWorkspace() {
+    cancelTimer();
+    state = newState();
+    seedChat();
+    renderAll();
+    addTimeline("Observed", "A fresh local workspace is ready after deletion.");
+    setPersistenceStatus("Offline", "The saved workspace was deleted; a fresh local demo is active.");
+    animateRun(state.runId);
+  }
+
+  function deleteWorkspace() {
+    if (!state || !state.workspace || deleting) return false;
+    if (typeof global.confirm === "function" && !global.confirm("Delete this workspace and start a fresh one?")) return false;
+    if (!global || typeof global.fetch !== "function") {
+      setPersistenceStatus("Offline", "Workspace deletion is unavailable; your local workspace was kept.");
+      return false;
+    }
+    deleting = true;
+    persistenceEpoch += 1;
+    persistenceQueued = false;
+    cancelPersistenceTimer();
+    setPersistenceStatus("Saving", "Deleting the workspace.");
+    var id = state.workspace.id;
+    var waitForSave = persistencePromise || Promise.resolve();
+    waitForSave.then(function () {
+      return global.fetch(workspaceRoute(id), { method: "DELETE", headers: { "Accept": "application/json" } });
+    }).then(function (response) {
+      if (!response || response.status !== 404 && !response.ok) throw new Error("delete_failed");
+      persistenceRevision += 1;
+      persistenceEpoch += 1;
+      deleting = false;
+      resetToFreshWorkspace();
+    }, function () {
+      deleting = false;
+      setPersistenceStatus("Offline", "Workspace could not be deleted; your local workspace was kept.");
+    });
+    return true;
+  }
+
   function animateRun(runId) {
     if (!state || state.runId !== runId) return;
     state.stageIndex += 1;
@@ -646,6 +911,7 @@
     seedChat();
     renderAll();
     addTimeline("Observed", "Replay started from the seeded login-app brief.");
+    schedulePersistence();
     animateRun(state.runId);
   }
 
@@ -685,6 +951,7 @@
     renderAgent();
     bindEvents();
     addTimeline("Observed", "The user selected " + selected + "; the alternate scope is marked replaced.");
+    schedulePersistence();
     return true;
   }
 
@@ -783,6 +1050,9 @@
         if (action === "save-lesson") { addTimeline("Observed", "Lesson saved locally for this demo session."); toast("Lesson saved locally for this demo session."); return; }
         if (action === "start-lesson") { showLessonKey(state.lesson || "auth"); focusMentor("Walk me through this security boundary step by step."); return; }
         if (action === "use-prompt") { focusMentor(node.getAttribute("data-prompt") || node.textContent); return; }
+        if (action === "export-workspace") { if (event && event.preventDefault) event.preventDefault(); exportWorkspace(); return; }
+        if (action === "delete-workspace") { if (event && event.preventDefault) event.preventDefault(); deleteWorkspace(); return; }
+        if (action === "import-transcript") { if (event && event.preventDefault) event.preventDefault(); importTranscript(); return; }
       });
     });
   }
@@ -799,6 +1069,7 @@
     addTimeline(check.checked ? "Observed" : "Not verified", check.checked
       ? "The user marked “" + check.text + "” complete; Bob did not execute it."
       : "The check is open again: " + check.text);
+    schedulePersistence();
     return true;
   }
 
@@ -852,6 +1123,7 @@
     if (state.workspace && workspaceModel && typeof workspaceModel.appendUserMessage === "function") {
       state.workspace = workspaceModel.appendUserMessage(state.workspace, input, { now: new Date().toISOString(), source: "user" });
       syncModelState();
+      schedulePersistence();
     }
     addChat("user", claim("Observed", "You asked: " + input));
     addTimeline("Observed", "The user asked Bob a local deterministic mentor question.");
@@ -872,6 +1144,7 @@
           if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
             state.workspace = workspaceModel.appendAssistantMessage(state.workspace, reply, { now: new Date().toISOString(), source: "cloud" });
             syncModelState();
+            schedulePersistence();
           }
           addChat("assistant", claim("Likely", reply) + "\n" + claim("Not verified", "Cloud output is a review-only suggestion; Bob did not run tests or change code."));
           addTimeline("Likely", "Cloud mentor response received; review-only and not independently verified.");
@@ -885,7 +1158,40 @@
         return true;
       }
     }
-    addChat("assistant", answerFor(input));
+    var localReply = answerFor(input);
+    if (state.workspace && workspaceModel && typeof workspaceModel.appendAssistantMessage === "function") {
+      state.workspace = workspaceModel.appendAssistantMessage(state.workspace, localReply, { now: new Date().toISOString(), source: "local" });
+      syncModelState();
+      schedulePersistence();
+    }
+    addChat("assistant", localReply);
+    return true;
+  }
+
+  function importTranscript() {
+    var input = first("#transcript-input, [data-transcript-input]");
+    var transcript = input && "value" in input ? input.value : "";
+    if (!text(transcript)) {
+      toast("Paste User:/Assistant: transcript lines first.");
+      return false;
+    }
+    if (!state || !state.workspace || !workspaceModel || typeof workspaceModel.importTranscript !== "function") {
+      setPersistenceStatus("Offline", "Transcript import is unavailable in this local page.");
+      return false;
+    }
+    try {
+      state.workspace = workspaceModel.importTranscript(state.workspace, transcript, { now: new Date().toISOString() });
+    } catch (error) {
+      toast("Transcript could not be imported.");
+      return false;
+    }
+    state.chat = chatFromWorkspace(state.workspace);
+    syncModelState();
+    renderAll();
+    if (input && "value" in input) input.value = "";
+    addTimeline("Observed", "A transcript was imported with explicit user and assistant roles.");
+    schedulePersistence();
+    toast("Transcript imported; saving workspace.");
     return true;
   }
 
@@ -984,9 +1290,7 @@
       setData(cloudConsent, "bob-bound", "true");
       cloudConsent.addEventListener("change", function () {
         state.cloudConsent = !!cloudConsent.checked;
-        setCloudStatus(state.cloudConsent
-          ? "Cloud on · context will be sent only when you submit a question to this same-origin Bob server."
-          : "Cloud off · local deterministic teaching is active.");
+        renderCloudStatus();
       });
     }
     bindComposer();
@@ -999,12 +1303,13 @@
     all("[data-project-name]").forEach(function (node) { setText(node, projectName); });
     var cloudConsent = first("#cloud-consent, [data-cloud-consent]");
     if (cloudConsent) cloudConsent.checked = !!state.cloudConsent;
-    setCloudStatus(state.cloudConsent ? "Cloud on · review the server response before acting." : "Cloud off · local deterministic teaching is active.");
     renderIntents();
     renderAgent();
     renderChecklist();
     renderTimeline();
     renderChat();
+    setProviderStatus(providerSummary(), "Provider status is read from GET /health; the client never receives the API key.");
+    renderCloudStatus();
     bindEvents();
   }
 
@@ -1041,7 +1346,10 @@
     state = newState();
     seedChat();
     renderAll();
-    addTimeline("Observed", "Seeded login-app demo loaded without a network request.");
+    setPersistenceStatus("Saved", "Local demo workspace is ready.");
+    addTimeline("Observed", "Seeded login-app demo loaded; workspace persistence status is shown above.");
+    loadWorkspace();
+    loadProviderHealth();
     animateRun(state.runId);
     return global.BobAgentDemo;
   }
@@ -1053,6 +1361,9 @@
     verifyCheck: verifyCheck,
     showLesson: showLesson,
     ask: ask,
+    importTranscript: importTranscript,
+    exportWorkspace: exportWorkspace,
+    deleteWorkspace: deleteWorkspace,
     getState: getState,
     selectors: SELECTORS
   };

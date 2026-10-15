@@ -4,7 +4,7 @@
 
 Bob should become a patient development mentor: understand a beginner's project, teach one step at a time, retain decisions, adapt to requirement changes, and guide testing and deployment. The main interface is a standalone agent workspace; the current browser extension is an optional, opt-in, read-only ChatGPT context adapter. Bob must never claim to have modified code, run tests, or deployed anything itself.
 
-## Implemented foundation (0.6.0)
+## Implemented foundation (0.7.0)
 
 - Explicit versioned consent, per-conversation capture gates, local storage, pause and revocation.
 - Capture diagnostics, ordered bounded messages and navigation guards.
@@ -25,6 +25,7 @@ Bob should become a patient development mentor: understand a beginner's project,
 - Dashboard includes a living intent ledger. It records only explicit user intent, preserves replaced items, marks uncertain statements, tracks demo/production scope and confidence, and surfaces a clarification cue without interrupting every minor ambiguity.
 - Standalone Bob Agent workspace at `web/`: controlled animated UI, explicit-role brief/transcript import model, source-linked intent/security evidence, lessons, scope clarification, user-reported verification checklist, deterministic local mentor, and optional same-origin cloud mentor request path.
 - Dependency-free loopback workspace server at `server/workspace-server.mjs` with a fixed static allowlist, strict host/origin checks, security headers, no payload logging, and reuse of the existing provider validation/redaction path.
+- Standalone workspace state persists through bounded atomic local files under `.bob/`, with reload recovery, export/delete/reset, and explicit-role transcript import. Bob's own local and optional cloud mentor turns are retained as assistant/user evidence with their source labels.
 - Node regression tests over DOM fixtures and simulated extension lifecycle.
 
 **Not implemented or not verified:** a live OpenRouter request with a real hackathon key, semantic requirement comparison quality, personalized lesson quality beyond deterministic demo/model-backed suggestions, code execution, actual progress verification, live disk-file updates, other AI websites, production authentication/quotas for a remote deployment, GitHub sync, or a production legal/store-review process.

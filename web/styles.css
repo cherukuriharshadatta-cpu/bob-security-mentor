@@ -1276,6 +1276,16 @@ h2 {
   box-shadow: 0 0 0 3px rgba(239, 121, 86, .1);
 }
 
+.cloud-status,
+.provider-status {
+  margin: 7px 0 0;
+  color: #91a19f;
+  font: 9px/1.35 var(--mono);
+}
+
+.provider-status[data-provider-configured="true"] { color: var(--mint); }
+.provider-status[data-provider-configured="false"] { color: var(--orange-bright); }
+
 .mentor-form-footer {
   display: flex;
   align-items: center;
